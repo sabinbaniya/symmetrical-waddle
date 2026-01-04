@@ -1,0 +1,33 @@
+{
+    "type": "module",
+    "scripts": {
+        "dev": "nodemon server.js",
+        "start": "node server.js",
+        "format": "prettier --write \"**/(*.tsx|*.ts|*.jsx|*.js|*.scss|*.css)\"",
+        "pm2-dev": "pm2 start server.js --name lucky-be --watch"
+    },
+    "dependencies": {
+        "axios": "^1.10.0",
+        "axios-cache-interceptor": "^1.8.0",
+        "connect-mongo": "^6.0.0",
+        "cookie": "^1.0.2",
+        "cookie-parser": "^1.4.7",
+        "cors": "^2.8.5",
+        "dotenv": "^17.2.0",
+        "express": "^5.1.0",
+        "express-rate-limit": "^8.0.1",
+        "express-session": "^1.18.2",
+        "fireblocks-sdk": "^5.38.0",
+        "ioredis": "^5.7.0",
+        "jsonwebtoken": "^9.0.2",
+        "mongoose": "^8.16.4",
+        "passport": "^0.7.0",
+        "passport-discord": "^0.1.4",
+        "passport-google-oauth20": "^2.0.0",
+        "passport-steam": "^1.0.18",
+        "prettier": "^3.6.2",
+        "socket.io": "^4.8.1",
+        "uuid": "^11.1.0",
+        "zod": "^4.2.1"
+    }
+}

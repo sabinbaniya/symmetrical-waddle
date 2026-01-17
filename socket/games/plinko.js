@@ -146,7 +146,7 @@ export default class Plinko extends Game {
                             [
                                 {
                                     game: "plinko",
-                                    user: user.steamid,
+                                    user: user._id,
                                     wager: betAmount,
                                     earning: payoutAmount,
                                     betId: betId,
@@ -157,7 +157,7 @@ export default class Plinko extends Game {
                             freshUser.activeBalanceType,
                         );
                     });
-                    const userDetails = await this.userById(user.steamid);
+                    const userDetails = await this.userById(user._id);
                     if (userDetails) {
                         this.announce(this.io, null, {
                             game: "Plinko",
@@ -212,9 +212,9 @@ export default class Plinko extends Game {
 
     async userById(userId, session = null) {
         if (session) {
-            return await UserDB.findOne({ steamid: userId }).session(session);
+            return await UserDB.findById(userId).session(session);
         } else {
-            return await UserDB.findOne({ steamid: userId });
+            return await UserDB.findById(userId);
         }
     }
 
@@ -274,7 +274,7 @@ export default class Plinko extends Game {
             try {
                 // PF seeds
                 const serverSeed = Buffer.from(uuidv4()).toString("hex");
-                const nonce = await redis.incr(CACHE_KEYS.GAMES_PLINKO_NONCE_BY_USER(user.steamid));
+                const nonce = await redis.incr(CACHE_KEYS.GAMES_PLINKO_NONCE_BY_USER(user._id.toString()));
 
                 const result = this.fire(rows, risk, serverSeed, clientSeed, nonce);
                 const multiplier = result.multiplier;
@@ -337,7 +337,7 @@ export default class Plinko extends Game {
                         });
                         await GamesDB.updateOne(
                             {
-                                user: user.steamid,
+                                user: user._id,
                                 game: "plinko",
                                 "pf.serverSeedCommitment": pfMeta.serverSeedCommitment,
                             },

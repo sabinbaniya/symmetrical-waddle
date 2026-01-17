@@ -180,12 +180,12 @@ export default class Transactions {
         }
     }
 
-    async createIntermediateVault(userSteamId, asset) {
-        const vaultName = `INT-${userSteamId}-${asset}`;
+    async createIntermediateVault(userId, asset) {
+        const vaultName = `INT-${userId}-${asset}`;
         const vaultAccount = await fireblocks.createVaultAccount(
             vaultName,
             true, // hiddenOnUI
-            userSteamId,
+            userId.toString(),
             false,
         );
         return vaultAccount;
@@ -341,14 +341,14 @@ export default class Transactions {
 
     // ---------- UTXO/SOL per-user deposit address on Omnibus ----------
 
-    async getOrCreateOmnibusUserAddress(steamid, asset) {
+    async getOrCreateOmnibusUserAddress(userId, asset) {
         if (!OMNIBUS_TREASURY_VAULT_ID) {
             throw new Error("OMNIBUS_TREASURY_VAULT_ID not configured");
         }
 
         const existing = await walletsDB
             .findOne({
-                steamid,
+                userId,
                 asset,
                 vaultID: OMNIBUS_TREASURY_VAULT_ID,
             })
@@ -362,7 +362,7 @@ export default class Transactions {
 
         await new walletsDB({
             vaultID: OMNIBUS_TREASURY_VAULT_ID,
-            steamid,
+            userId,
             address: newAddress,
             asset,
             createdAt: Date.now(),
@@ -535,7 +535,7 @@ export default class Transactions {
 
                     if (pending) {
                         await new cryptoWithdrawsDB({
-                            steamid: pending.steamid,
+                            userId: pending.userId,
                             to: pending.to,
                             txhash: data.id,
                             asset: pending.asset,
@@ -568,7 +568,7 @@ export default class Transactions {
 
                     if (pending) {
                         await userDB.updateOne(
-                            { steamid: pending.steamid },
+                            { _id: pending.userId },
                             // { $inc: { balance: pending.usdAmount } }
                             { $inc: { sweepstakeBalance: pending.usdAmount } },
                         );
@@ -619,12 +619,12 @@ export default class Transactions {
 
                 // Account-based: per-user INT vault (hidden) + auto-fuel
                 if (ACCOUNT_BASED_ASSETS.includes(asset)) {
-                    const vaultAccount = await this.createIntermediateVault(user.steamid, asset);
+                    const vaultAccount = await this.createIntermediateVault(user._id, asset);
                     const assetWallet = await fireblocks.createVaultAsset(vaultAccount.id, asset);
 
                     await new walletsDB({
                         vaultID: vaultAccount.id,
-                        steamid: user.steamid,
+                        steamid: user._id,
                         address: assetWallet.address,
                         asset,
                         createdAt: Date.now(),
@@ -637,7 +637,7 @@ export default class Transactions {
                 }
 
                 // UTXO-style (BTC/LTC/SOL): unique per-user address from Omnibus
-                const userAddress = await this.getOrCreateOmnibusUserAddress(user.steamid, asset);
+                const userAddress = await this.getOrCreateOmnibusUserAddress(user._id, asset);
                 return socket.emit("deposit-address", { status: true, address: userAddress });
             } catch (err) {
                 console.error("deposit-address error:", err);
@@ -682,7 +682,7 @@ export default class Transactions {
                     return socket.emit("withdraw", { status: false, error: "Invalid amount" });
                 }
 
-                const userCanWithdraw = await Auth.canWithdraw(user.steamid);
+                const userCanWithdraw = await Auth.canWithdraw(user._id);
                 if (userCanWithdraw?.status === false) {
                     return socket.emit("withdraw", {
                         status: false,
@@ -698,7 +698,7 @@ export default class Transactions {
                     });
                 }
 
-                const limitInfo = await Auth.withdrawLimit(user.steamid, data.amount);
+                const limitInfo = await Auth.withdrawLimit(user._id, data.amount);
                 if (limitInfo.allowed === false) {
                     return socket.emit("withdraw", {
                         status: false,
@@ -706,7 +706,7 @@ export default class Transactions {
                     });
                 }
 
-                const meetsWagerLimit = await Auth.meetsWagerLimit(user.steamid, data.amount);
+                const meetsWagerLimit = await Auth.meetsWagerLimit(user._id, data.amount);
                 if (!meetsWagerLimit) {
                     return socket.emit("withdraw", {
                         status: false,
@@ -758,7 +758,7 @@ export default class Transactions {
 
                     // Create pending first to get an id for externalTxId idempotency
                     const pendingDoc = await new pendingCryptoWithdrawsDB({
-                        steamid: user.steamid,
+                        userId: user._id,
                         to,
                         asset,
                         usdAmount,
@@ -791,9 +791,9 @@ export default class Transactions {
                         { ...pendingDoc.toObject(), txID: tx.id },
                     ];
 
-                    // await userDB.updateOne({ steamid: user.steamid }, { $inc: { balance: -usdAmount } });
+                    // await userDB.updateOne({ _id: user._id }, { $inc: { balance: -usdAmount } });
                     await userDB.updateOne(
-                        { steamid: user.steamid },
+                        { _id: user._id },
                         { $inc: { sweepstakeBalance: -usdAmount } },
                     );
                     return socket.emit("withdraw", { status: true });
@@ -804,7 +804,7 @@ export default class Transactions {
                     const warmVaultId = await this.getLowestBalanceWarmVault(asset);
 
                     const pendingDoc = await new pendingCryptoWithdrawsDB({
-                        steamid: user.steamid,
+                        userId: user._id,
                         to,
                         asset,
                         usdAmount,
@@ -837,9 +837,9 @@ export default class Transactions {
                         { ...pendingDoc.toObject(), fundingTxID: fundTx.id },
                     ];
 
-                    // await userDB.updateOne({ steamid: user.steamid }, { $inc: { balance: -usdAmount } });
+                    // await userDB.updateOne({ _id: user._id }, { $inc: { balance: -usdAmount } });
                     await userDB.updateOne(
-                        { steamid: user.steamid },
+                        { _id: user._id },
                         { $inc: { sweepstakeBalance: -usdAmount } },
                     );
                     return socket.emit("withdraw", { status: true, queued: true });
@@ -849,7 +849,7 @@ export default class Transactions {
                 const coldVaultId = await this.getPreferredColdVault(asset);
 
                 const pendingCold = await new pendingCryptoWithdrawsDB({
-                    steamid: user.steamid,
+                    userId: user._id,
                     to,
                     asset,
                     usdAmount,
@@ -882,9 +882,9 @@ export default class Transactions {
                     { ...pendingCold.toObject(), fundingTxID: coldFundTx.id },
                 ];
 
-                // await userDB.updateOne({ steamid: user.steamid }, { $inc: { balance: -usdAmount } });
+                // await userDB.updateOne({ _id: user._id }, { $inc: { balance: -usdAmount } });
                 await userDB.updateOne(
-                    { steamid: user.steamid },
+                    { _id: user._id },
                     { $inc: { sweepstakeBalance: -usdAmount } },
                 );
                 return socket.emit("withdraw", { status: true, queued: true });
@@ -921,7 +921,7 @@ export default class Transactions {
                             continue;
 
                         await new cryptoWithdrawsDB({
-                            steamid: withdraw.steamid,
+                            userId: withdraw.userId,
                             to: withdraw.to,
                             txhash: id,
                             asset: withdraw.asset,
@@ -934,7 +934,7 @@ export default class Transactions {
                         this.withdraws = this.withdraws.filter(
                             w => String(w._id) !== String(withdraw._id),
                         );
-                        await Affiliate.update("withdraw", withdraw.steamid, withdraw.usdAmount);
+                        await Affiliate.update("withdraw", withdraw.userId, withdraw.usdAmount);
                     } else if (
                         tx?.status === "FAILED" ||
                         tx?.status === "REJECTED" ||
@@ -943,7 +943,7 @@ export default class Transactions {
                         tx?.status === "BLOCKED"
                     ) {
                         await userDB.updateOne(
-                            { steamid: withdraw.steamid },
+                            { _id: withdraw.userId },
                             // { $inc: { balance: withdraw.usdAmount } }
                             { $inc: { sweepstakeBalance: withdraw.usdAmount } },
                         );

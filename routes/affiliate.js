@@ -14,7 +14,7 @@ const requireAuth = (req, res, next) => {
 // GET /affiliate/stats - Get affiliate statistics for authenticated user
 router.get("/stats", requireAuth, async (req, res) => {
     try {
-        const affiliateStats = await Affiliate.getAffiliates(req.user.steamid);
+        const affiliateStats = await Affiliate.getAffiliates(req.user._id);
         res.json(affiliateStats);
     } catch (error) {
         console.error("Error fetching affiliate stats:", error);

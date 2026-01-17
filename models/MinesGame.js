@@ -4,7 +4,8 @@ const { model, models, Schema } = pkg;
 const minesGameSchema = new Schema(
     {
         userID: {
-            type: String,
+            type: Schema.Types.ObjectId,
+            ref: "users",
             required: true,
             index: true,
         },

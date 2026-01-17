@@ -7,7 +7,7 @@ export const getInventoryController = async (req, res) => {
         const { appid } = req.query;
         const user = req.user;
 
-        if (!user || !user.steamid) {
+        if (!user) {
             return res.status(401).json({ error: "Unauthorized" });
         }
 
@@ -15,7 +15,7 @@ export const getInventoryController = async (req, res) => {
             return res.status(400).json({ error: "AppID is required" });
         }
 
-        const response = await getInventory(appid, user.steamid);
+        const response = await getInventory(appid, user.steamid); // getInventory still needs steamid if it hits Steam API
 
         if (!response || !response.assets || !response.descriptions) {
             return res.json({ inventory: [] });
@@ -66,7 +66,7 @@ export const getInventoryController = async (req, res) => {
 export const getTransactionsController = async (req, res) => {
     try {
         const user = req.user;
-        if (!user || !user.steamid) {
+        if (!user) {
             return res.status(401).json({ success: false, message: "Unauthorized" });
         }
 
@@ -75,7 +75,7 @@ export const getTransactionsController = async (req, res) => {
         const limitNum = parseInt(limit);
         const skip = (pageNum - 1) * limitNum;
 
-        const query = { $or: [{ buyer: user.steamid }, { seller: user.steamid }] };
+        const query = { $or: [{ buyer: user._id }, { seller: user._id }] };
 
         if (search) {
             query.$or = [

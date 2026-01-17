@@ -6,8 +6,9 @@ const pendingCryptoWithdrawSchema = new Schema({
         type: String,
         required: true,
     },
-    steamid: {
-        type: String,
+    userId: {
+        type: Schema.Types.ObjectId,
+        ref: "users",
         required: true,
     },
     to: {

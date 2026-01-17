@@ -60,19 +60,19 @@ export default class Mines extends Game {
     }
 
     // Helper method to get game state
-    async getGame(userID) {
+    async getGame(userId) {
         try {
-            const key = CACHE_KEYS.GAMES_MINES_BY_USER(userID);
+            const key = CACHE_KEYS.GAMES_MINES_BY_USER(userId);
             const cached = await redis.get(key);
             if (cached) return JSON.parse(cached);
 
             const gameFromDB = await MinesGame.findOne({
-                userID,
+                userId: userId.toString(),
                 status: "ongoing",
             });
 
             if (gameFromDB) {
-                await this.setGame(userID, gameFromDB);
+                await this.setGame(userId.toString(), gameFromDB);
                 return gameFromDB;
             }
             return null;
@@ -83,9 +83,9 @@ export default class Mines extends Game {
     }
 
     // Helper method to set game state in cache
-    async setGame(userID, gameState) {
+    async setGame(userId, gameState) {
         try {
-            const key = CACHE_KEYS.GAMES_MINES_BY_USER(userID);
+            const key = CACHE_KEYS.GAMES_MINES_BY_USER(userId);
             return await redis.set(key, JSON.stringify(gameState));
         } catch (e) {
             console.log("Mines:setGame", e);
@@ -94,14 +94,14 @@ export default class Mines extends Game {
     }
 
     // Helper method to delete game state
-    async deleteGame(userID) {
+    async deleteGame(userId) {
         try {
-            const key = CACHE_KEYS.GAMES_MINES_BY_USER(userID);
+            const key = CACHE_KEYS.GAMES_MINES_BY_USER(userId);
             await redis.del(key);
 
             // Also update in MongoDB
             await MinesGame.updateOne(
-                { userID, status: "ongoing" },
+                { userId: userId.toString(), status: "ongoing" },
                 { $set: { status: "completed" } },
             );
             return true;
@@ -116,8 +116,8 @@ export default class Mines extends Game {
         throw new Error("setMines is deprecated; use ProvablyFair.generateMinesBoard");
     }
 
-    async updateMultiplier(userID, mineCount) {
-        const game = await this.getGame(userID);
+    async updateMultiplier(userId, mineCount) {
+        const game = await this.getGame(userId.toString());
         if (!game) return;
 
         const revealed = game.mines.filter(area => area === 2).length;
@@ -135,9 +135,9 @@ export default class Mines extends Game {
         }
 
         // Save back to storage
-        await this.setGame(userID, updatedGame);
+        await this.setGame(userId.toString(), updatedGame);
         await MinesGame.updateOne(
-            { userID, status: "ongoing" },
+            { userId: userId.toString(), status: "ongoing" },
             {
                 $set: {
                     currentMultiplier: ratio,
@@ -150,13 +150,13 @@ export default class Mines extends Game {
         );
     }
 
-    async lose(userID, activeBalanceType) {
+    async lose(userId, activeBalanceType) {
         const session = await mongoose.startSession();
         session.startTransaction();
         try {
             // Save game to database with lost status
             await MinesGame.updateOne(
-                { userID, status: "ongoing" },
+                { userId: userId.toString(), status: "ongoing" },
                 {
                     $set: {
                         status: "lost",
@@ -168,13 +168,13 @@ export default class Mines extends Game {
             );
 
             // Save to history
-            const game = await this.getGame(userID);
+            const game = await this.getGame(userId.toString());
             if (game) {
                 await this.saveGame(
                     [
                         {
                             game: "mines",
-                            user: userID,
+                            user: userId.toString(),
                             wager: game.betAmount,
                             earning: 0,
                         },
@@ -185,7 +185,7 @@ export default class Mines extends Game {
             }
 
             await session.commitTransaction();
-            await this.deleteGame(userID);
+            await this.deleteGame(userId.toString());
         } catch (error) {
             await session.abortTransaction();
             throw error;
@@ -194,11 +194,11 @@ export default class Mines extends Game {
         }
     }
 
-    async cashout(cookie, userID, calculateNext = false, activeBalanceType) {
+    async cashout(cookie, userId, calculateNext = false, activeBalanceType) {
         const session = await mongoose.startSession();
         session.startTransaction();
         try {
-            const game = await this.getGame(userID);
+            const game = await this.getGame(userId.toString());
             if (!game) {
                 await session.abortTransaction();
                 return null;
@@ -217,7 +217,7 @@ export default class Mines extends Game {
 
             // Mark game as completed in DB
             await MinesGame.updateOne(
-                { userID, status: "ongoing" },
+                { userId: userId.toString(), status: "ongoing" },
                 {
                     $set: {
                         status: "completed",
@@ -233,7 +233,7 @@ export default class Mines extends Game {
                 [
                     {
                         game: "mines",
-                        user: userID,
+                        user: userId.toString(),
                         wager: game.betAmount,
                         earning: winningAmount,
                     },
@@ -243,7 +243,7 @@ export default class Mines extends Game {
             );
 
             await session.commitTransaction();
-            await this.deleteGame(userID);
+            await this.deleteGame(userId.toString());
 
             return winningAmount;
         } catch (error) {
@@ -260,17 +260,17 @@ export default class Mines extends Game {
         socket.on("disconnect", async () => {
             const user = await this.user(socket.cookie);
             if (!user) return;
-            const game = await this.getGame(user.steamid);
+            const game = await this.getGame(user._id.toString());
             if (!game) return;
 
             try {
                 await this.withLock(
-                    user.steamid,
+                    user._id.toString(),
                     async () => {
                         if (game.mines.includes(2)) {
                             await this.cashout(
                                 socket.cookie,
-                                user.steamid,
+                                user._id,
                                 false,
                                 user.activeBalanceType,
                             );
@@ -287,7 +287,7 @@ export default class Mines extends Game {
                                     session,
                                 );
                                 await MinesGame.updateOne(
-                                    { userID: user.steamid, status: "ongoing" },
+                                    { userId: user._id.toString(), status: "ongoing" },
                                     {
                                         $set: {
                                             status: "abandoned",
@@ -298,7 +298,7 @@ export default class Mines extends Game {
                                     { session },
                                 );
                                 await session.commitTransaction();
-                                await this.deleteGame(user.steamid);
+                                await this.deleteGame(user._id);
                             } catch (error) {
                                 await session.abortTransaction();
                                 console.error("Error handling disconnect:", error);
@@ -326,9 +326,9 @@ export default class Mines extends Game {
             }
 
             try {
-                await this.withLock(user.steamid, async () => {
+                await this.withLock(user._id.toString(), async () => {
                     // Check for ongoing game
-                    const game = await this.getGame(user.steamid);
+                    const game = await this.getGame(user._id.toString());
                     if (!game) {
                         return socket.emit("mines:cashout", {
                             status: false,
@@ -353,7 +353,7 @@ export default class Mines extends Game {
                     try {
                         const winningAmount = await this.cashout(
                             socket.cookie,
-                            user.steamid,
+                            user._id.toString(),
                             false,
                             user.activeBalanceType,
                         );
@@ -363,7 +363,7 @@ export default class Mines extends Game {
                             mines: game.mines,
                         });
                         // Emit proof after successful cashout
-                        const serverSeed = this._serverSeeds.get(user.steamid);
+                        const serverSeed = this._serverSeeds.get(user._id.toString());
                         if (serverSeed && game.pf) {
                             socket.emit("mines:proof", {
                                 serverSeed,
@@ -375,14 +375,14 @@ export default class Mines extends Game {
                             try {
                                 await MinesGame.updateOne(
                                     {
-                                        userID: user.steamid,
+                                        userId: user._id.toString(),
                                         status: "completed",
                                         "pf.serverSeedCommitment": game.pf.serverSeedCommitment,
                                     },
                                     { $set: { "pf.serverSeed": serverSeed } },
                                 );
                             } catch (e) {}
-                            this._serverSeeds.delete(user.steamid);
+                            this._serverSeeds.delete(user._id.toString());
                         }
                         // Live game announcement
                         this.announce(io, null, {
@@ -484,9 +484,9 @@ export default class Mines extends Game {
             }
 
             try {
-                await this.withLock(user.steamid, async () => {
+                await this.withLock(user._id.toString(), async () => {
                     // Check if user has an ongoing game
-                    const existingGame = await this.getGame(user.steamid);
+                    const existingGame = await this.getGame(user._id.toString());
                     if (existingGame) {
                         return socket.emit("mines:start", {
                             status: false,
@@ -495,7 +495,7 @@ export default class Mines extends Game {
                     }
                     // Check for existing game in DB (in case cache is stale)
                     const existingGameDB = await MinesGame.findOne({
-                        userID: user.steamid,
+                        userId: user._id.toString(),
                         status: "ongoing",
                     });
                     if (existingGameDB) {
@@ -530,7 +530,7 @@ export default class Mines extends Game {
                         // Generate provably fair game state
                         const serverSeed = randomBytes(32).toString("hex");
                         const nonce = await redis.incr(
-                            CACHE_KEYS.GAMES_MINES_NONCE_BY_USER(user.steamid),
+                            CACHE_KEYS.GAMES_MINES_NONCE_BY_USER(user._id.toString()),
                         );
                         // EOS head block id as public seed (best effort)
                         let publicSeed = null;
@@ -547,10 +547,10 @@ export default class Mines extends Game {
                         const serverSeedCommitment =
                             this.pf.computeServerSeedCommitment(serverSeed);
                         // Keep plaintext serverSeed in memory only for current round
-                        this._serverSeeds.set(user.steamid, serverSeed);
+                        this._serverSeeds.set(user._id.toString(), serverSeed);
                         const nextMultiplier = (25 / (25 - data.mineCount)) * (1 - HE);
                         const gameDoc = {
-                            userID: user.steamid,
+                            userId: user._id.toString(),
                             mines,
                             betAmount: data.betAmount,
                             mineCount: data.mineCount,
@@ -569,12 +569,12 @@ export default class Mines extends Game {
                         };
                         // Store in MongoDB
                         await MinesGame.updateOne(
-                            { userID: user.steamid, status: "ongoing" },
+                            { userId: user._id.toString(), status: "ongoing" },
                             { $set: gameDoc },
                             { upsert: true, session },
                         );
                         // Cache in Redis
-                        await this.setGame(user.steamid, gameDoc);
+                        await this.setGame(user._id.toString(), gameDoc);
                         await session.commitTransaction();
 
                         socket.emit("mines:start", {
@@ -624,8 +624,8 @@ export default class Mines extends Game {
             }
 
             try {
-                await this.withLock(user.steamid, async () => {
-                    const game = await this.getGame(user.steamid);
+                await this.withLock(user._id.toString(), async () => {
+                    const game = await this.getGame(user._id.toString());
                     if (!game) {
                         return socket.emit("mines:reveal", {
                             status: false,
@@ -660,9 +660,9 @@ export default class Mines extends Game {
                     if (mineRevealed) {
                         const updatedGame = { ...game, mines: updatedMines };
                         // Update in cache and DB
-                        await this.setGame(user.steamid, updatedGame);
+                        await this.setGame(user._id.toString(), updatedGame);
                         await MinesGame.updateOne(
-                            { userID: user.steamid, status: "ongoing" },
+                            { userId: user._id.toString(), status: "ongoing" },
                             { $set: { mines: updatedMines } },
                         );
                         socket.emit("mines:reveal", {
@@ -670,7 +670,7 @@ export default class Mines extends Game {
                             mineRevealed: true,
                             mines: updatedMines,
                         });
-                        await this.lose(user.steamid, user.activeBalanceType);
+                        await this.lose(user._id.toString(), user.activeBalanceType);
                         // Live game announcement
                         this.announce(io, null, {
                             game: "Mines",
@@ -682,7 +682,7 @@ export default class Mines extends Game {
                             payout: 0,
                         });
                         // Reveal server seed after conclusion (lose)
-                        const serverSeed = this._serverSeeds.get(user.steamid);
+                        const serverSeed = this._serverSeeds.get(user._id.toString());
                         if (serverSeed && game.pf) {
                             socket.emit("mines:proof", {
                                 serverSeed,
@@ -694,14 +694,14 @@ export default class Mines extends Game {
                             try {
                                 await MinesGame.updateOne(
                                     {
-                                        userID: user.steamid,
+                                        userId: user._id.toString(),
                                         status: { $in: ["lost", "abandoned"] },
                                         "pf.serverSeedCommitment": game.pf.serverSeedCommitment,
                                     },
                                     { $set: { "pf.serverSeed": serverSeed } },
                                 );
                             } catch (e) {}
-                            this._serverSeeds.delete(user.steamid);
+                            this._serverSeeds.delete(userId.toString());
                         }
                         return;
                     }
@@ -712,7 +712,7 @@ export default class Mines extends Game {
                     if (!updatedMines.includes(0)) {
                         await this.cashout(
                             socket.cookie,
-                            user.steamid,
+                            user._id.toString(),
                             true,
                             user.activeBalanceType,
                         );
@@ -731,7 +731,7 @@ export default class Mines extends Game {
                             payout: game.nextMultiplier * game.betAmount,
                         });
                         // Reveal server seed after conclusion (win via full clear)
-                        const serverSeed2 = this._serverSeeds.get(user.steamid);
+                        const serverSeed2 = this._serverSeeds.get(user._id.toString());
                         if (serverSeed2 && game.pf) {
                             socket.emit("mines:proof", {
                                 serverSeed: serverSeed2,
@@ -739,20 +739,20 @@ export default class Mines extends Game {
                                 clientSeed: game.pf.clientSeed,
                                 nonce: game.pf.nonce,
                             });
-                            this._serverSeeds.delete(user.steamid);
+                            this._serverSeeds.delete(userId.toString());
                         }
                         return;
                     }
                     // Update in cache and DB before updating multiplier
-                    await this.setGame(user.steamid, updatedGame);
+                    await this.setGame(user._id.toString(), updatedGame);
                     await MinesGame.updateOne(
-                        { userID: user.steamid, status: "ongoing" },
+                        { userId: user._id.toString(), status: "ongoing" },
                         { $set: { mines: updatedMines } },
                     );
                     // Update multiplier
-                    await this.updateMultiplier(user.steamid, game.mineCount);
+                    await this.updateMultiplier(user._id.toString(), game.mineCount);
                     // Get updated game state after multiplier update
-                    const finalUpdatedGame = await this.getGame(user.steamid);
+                    const finalUpdatedGame = await this.getGame(user._id.toString());
                     socket.emit("mines:reveal", {
                         status: true,
                         index: data.index,

@@ -8,7 +8,8 @@ const gamesSchema = new Schema({
         index: true,
     },
     user: {
-        type: String,
+        type: Schema.Types.ObjectId,
+        ref: "users",
         required: true,
         index: true,
     },

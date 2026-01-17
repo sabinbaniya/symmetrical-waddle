@@ -14,7 +14,7 @@ const chatSchema = new Schema({
                 {
                     user: new Schema(
                         {
-                            steamid: String,
+                            userId: { type: Schema.Types.ObjectId, ref: "users" },
                             avatar: String,
                             username: String,
                             level: Number,

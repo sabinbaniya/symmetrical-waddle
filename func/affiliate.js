@@ -27,7 +27,7 @@ export default class Affiliate {
         return { status: true };
     }
 
-    static async setCode(steamid, code) {
+    static async setCode(userId, code) {
         const validated = await Affiliate.validateCode(code);
 
         if (validated.status === false) {
@@ -35,12 +35,12 @@ export default class Affiliate {
         }
 
         const newAffiliate = new affiliateDB({
-            user: steamid,
+            user: userId,
             code: code.toUpperCase(),
         });
 
         await Promise.all([
-            userDB.findOneAndUpdate({ steamid }, { "affiliate.code": code.toUpperCase() }),
+            userDB.findOneAndUpdate({ _id: userId }, { "affiliate.code": code.toUpperCase() }),
             newAffiliate.save(),
         ]);
 
@@ -48,7 +48,7 @@ export default class Affiliate {
     }
 
     // Underscore is at the beginning is necessary, to distinguish this method from React hooks
-    static async _useCode(steamid, code) {
+    static async _useCode(userId, code) {
         if (!code || typeof code !== "string")
             return { status: false, message: "Promo code is invalid" };
 
@@ -59,24 +59,24 @@ export default class Affiliate {
         if (code.toUpperCase() !== "LUCKYRUST") {
             promoCodeOwner = await userDB.findOne({ "affiliate.code": code });
             if (!promoCodeOwner) return { status: false, message: "Promo code is invalid" };
-            if (promoCodeOwner.steamid === steamid)
+            if (promoCodeOwner._id.toString() === userId.toString())
                 return { status: false, message: "You cannot use your own promo code" };
         }
 
         await Promise.all([
             userDB.findOneAndUpdate(
-                { steamid },
+                { _id: userId },
                 { $set: { "affiliate.used": code }, $inc: { balance: 0.2 } },
             ),
             affiliateDB.updateOne(
-                { user: promoCodeOwner.steamid },
+                { user: promoCodeOwner._id },
                 {
                     $push: {
-                        affiliates: steamid,
+                        affiliates: userId,
                     },
                 },
             ),
-            rewardDB.findOneAndUpdate({ steamid }, { $set: { depositBonus: true, freeCases: 0 } }),
+            rewardDB.findOneAndUpdate({ _id: userId }, { $set: { depositBonus: true, freeCases: 0 } }),
         ]);
 
         return { status: true };
@@ -105,25 +105,25 @@ export default class Affiliate {
         }
     }
 
-    static async getTotalAffiliates(steamid) {
-        const record = await affiliateDB.findOne({ user: steamid });
+    static async getTotalAffiliates(userId) {
+        const record = await affiliateDB.findOne({ user: userId });
         if (!record) return 0;
 
         return record.affiliates.length;
     }
 
-    static async getAffiliates(steamid) {
+    static async getAffiliates(userId) {
         const res = [];
-        const record = await affiliateDB.findOne({ user: steamid });
+        const record = await affiliateDB.findOne({ user: userId });
         const affiliates = record?.affiliates || [];
 
-        const user = await userDB.findOne({ steamid }, { experience: 1 });
+        const user = await userDB.findOne({ _id: userId }, { experience: 1 });
 
-        const share = await Affiliate.getAffiliateShare(user.steamid);
+        const share = await Affiliate.getAffiliateShare(user._id);
 
         for (const affiliate of affiliates) {
             const { username, avatar } = await userDB.findOne(
-                { steamid: affiliate },
+                { _id: affiliate },
                 { _id: 0, username: 1, avatar: 1 },
             );
 
@@ -142,7 +142,7 @@ export default class Affiliate {
                 avatar,
                 deposited,
                 withdraws,
-                steamid: affiliate,
+                user: affiliate,
                 earned: (deposited - (withdraws + bonuses)) * share,
             });
         }
@@ -152,20 +152,20 @@ export default class Affiliate {
         return res;
     }
 
-    static async getCurrentEarnings(steamid) {
-        const record = await affiliateDB.findOne({ user: steamid });
+    static async getCurrentEarnings(userId) {
+        const record = await affiliateDB.findOne({ user: userId });
         if (!record) return 0;
         return record?.earning || 0;
     }
 
-    static async getTotalEarnings(steamid) {
-        const record = await affiliateDB.findOne({ user: steamid });
+    static async getTotalEarnings(userId) {
+        const record = await affiliateDB.findOne({ user: userId });
         if (!record) return 0;
         return record?.totalEarnings || 0;
     }
 
-    static async totalDepositedByAffiliates(steamid, lastClaimed = null) {
-        const record = await affiliateDB.findOne({ user: steamid });
+    static async totalDepositedByAffiliates(userId, lastClaimed = null) {
+        const record = await affiliateDB.findOne({ user: userId });
         if (!record || record?.deposits?.length === 0) return 0;
 
         const deposits = record.deposits.filter(d => {
@@ -177,8 +177,8 @@ export default class Affiliate {
         return totalDeposited;
     }
 
-    static async totalWithdrawnByAffiliates(steamid, lastClaimed = null) {
-        const record = await affiliateDB.findOne({ user: steamid });
+    static async totalWithdrawnByAffiliates(userId, lastClaimed = null) {
+        const record = await affiliateDB.findOne({ user: userId });
         if (!record || record?.withdraws?.length === 0) return 0;
 
         const withdraws = record.withdraws.filter(w => {
@@ -190,8 +190,8 @@ export default class Affiliate {
         return totalWithdrawn;
     }
 
-    static async totalBonusByAffiliates(steamid, lastClaimed = null) {
-        const record = await affiliateDB.findOne({ user: steamid });
+    static async totalBonusByAffiliates(userId, lastClaimed = null) {
+        const record = await affiliateDB.findOne({ user: userId });
         if (!record || record?.bonuses?.length === 0) return 0;
 
         const bonuses = record.bonuses.filter(b => {
@@ -206,10 +206,10 @@ export default class Affiliate {
     /**
      * @param {"deposit" | "withdraw" | "bonus"} method
      */
-    static async update(method, steamid, amount, options = {}) {
+    static async update(method, userId, amount, options = {}) {
         // Check if user has used an affiliate code
         const used = await userDB.findOne(
-            { steamid },
+            { _id: userId },
             { "affiliate.used": 1 },
             { session: options?.session },
         );
@@ -223,7 +223,7 @@ export default class Affiliate {
 
         let $push = {};
         const record = {
-            user: steamid,
+            user: userId,
             amount,
             date: new Date(),
         };
@@ -247,16 +247,16 @@ export default class Affiliate {
         }
 
         await affiliateDB.updateOne(
-            { user: owner.steamid },
+            { user: owner._id },
             { $push },
             { session: options?.session },
         );
 
         // Calculate current earning
-        const currentEarnings = await Affiliate.calculateCurrentEarnings(owner.steamid);
+        const currentEarnings = await Affiliate.calculateCurrentEarnings(owner._id);
 
         await affiliateDB.updateOne(
-            { user: owner.steamid },
+            { user: owner._id },
             {
                 $set: {
                     earning: currentEarnings,
@@ -266,21 +266,21 @@ export default class Affiliate {
         );
     }
 
-    static async calculateCurrentEarnings(steamid) {
-        const record = await affiliateDB.findOne({ user: steamid }, { lastClaimed: 1 });
+    static async calculateCurrentEarnings(userId) {
+        const record = await affiliateDB.findOne({ user: userId }, { lastClaimed: 1 });
         const lastClaimed = record?.lastClaimed;
 
-        console.log("Calculating current earnings for", steamid, "last claimed:", lastClaimed);
+        console.log("Calculating current earnings for", userId, "last claimed:", lastClaimed);
 
         const [deposits, withdraws, bonuses] = await Promise.all([
-            this.totalDepositedByAffiliates(steamid, lastClaimed),
-            this.totalWithdrawnByAffiliates(steamid, lastClaimed),
-            this.totalBonusByAffiliates(steamid, lastClaimed),
+            this.totalDepositedByAffiliates(userId, lastClaimed),
+            this.totalWithdrawnByAffiliates(userId, lastClaimed),
+            this.totalBonusByAffiliates(userId, lastClaimed),
         ]);
 
-        const user = await userDB.findOne({ steamid }, { experience: 1 });
+        const user = await userDB.findOne({ _id: userId }, { experience: 1 });
 
-        const share = await Affiliate.getAffiliateShare(user.steamid);
+        const share = await Affiliate.getAffiliateShare(user._id);
 
         const earnings = (deposits - (withdraws + bonuses)) * share;
         console.log(

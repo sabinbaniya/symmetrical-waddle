@@ -165,7 +165,7 @@ export default class IRLUnboxing extends Game {
                     message: "clientSeed is required",
                 });
 
-            const userBalance = await Auth.getUserBalance(user.steamid);
+            const userBalance = await Auth.getUserBalance(user._id);
             if (userBalance < casePrice * data.spinnerAmount || casePrice * data.spinnerAmount <= 0)
                 return socket.emit("irl:spin", { status: false, message: "Insufficient balance" });
 
@@ -176,7 +176,7 @@ export default class IRLUnboxing extends Game {
 
             // Provably Fair seeds and commitment
             const serverSeed = (await import("crypto")).randomBytes(32).toString("hex");
-            const nonce = await redis.incr(CACHE_KEYS.GAMES_IRL_NONCE_BY_USER(user.steamid));
+            const nonce = await redis.incr(CACHE_KEYS.GAMES_IRL_NONCE_BY_USER(user._id.toString()));
             const serverSeedCommitment = this.pf.computeServerSeedCommitment(serverSeed);
             const pfStart = { serverSeedCommitment, clientSeed: data.clientSeed, nonce };
             socket.emit("irl:pf", pfStart);
@@ -205,6 +205,10 @@ export default class IRLUnboxing extends Game {
             const balanceResponse = await this.addBalance(
                 socket.cookie,
                 totalEarning - casePrice * data.spinnerAmount,
+                null,
+                null,
+                null,
+                user.activeBalanceType
             );
             if (!balanceResponse)
                 return socket.emit("irl:spin", { status: false, message: "An error occured" });
@@ -214,7 +218,7 @@ export default class IRLUnboxing extends Game {
             this.saveGame([
                 {
                     game: "irl",
-                    user: user.steamid,
+                    user: user._id,
                     wager: casePrice * data.spinnerAmount,
                     earning: totalEarning,
                     pf: pfStart,
@@ -243,7 +247,7 @@ export default class IRLUnboxing extends Game {
                     });
                     await GamesDB.updateOne(
                         {
-                            user: user.steamid,
+                            user: user._id,
                             game: "irl",
                             "pf.serverSeedCommitment": serverSeedCommitment,
                         },

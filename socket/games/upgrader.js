@@ -63,9 +63,9 @@ export default class Upgrader extends Game {
         throw lastError || new Error("Could not acquire lock after retries");
     }
 
-    async getGame(userID) {
+    async getGame(userId) {
         try {
-            const key = CACHE_KEYS.UPGRADER_GAME_BY_USER(userID);
+            const key = CACHE_KEYS.UPGRADER_GAME_BY_USER(userId.toString());
             const cached = await redis.get(key);
             let gameState = null;
 
@@ -82,12 +82,12 @@ export default class Upgrader extends Game {
             if (!gameState) {
                 gameState = await Gameplays.findOne({
                     gamemode: "upgrader",
-                    participants: userID,
+                    participants: userId.toString(),
                     status: "ongoing",
                 });
 
                 if (gameState) {
-                    await this.setGame(userID, gameState);
+                    await this.setGame(userId.toString(), gameState);
                 }
             }
 
@@ -98,9 +98,9 @@ export default class Upgrader extends Game {
         }
     }
 
-    async updateRedisCache(userID, gameState) {
+    async updateRedisCache(userId, gameState) {
         try {
-            const key = CACHE_KEYS.UPGRADER_GAME_BY_USER(userID);
+            const key = CACHE_KEYS.UPGRADER_GAME_BY_USER(userId.toString());
             await redis.set(key, JSON.stringify(gameState), "EX", 3600);
             return true;
         } catch (e) {
@@ -109,9 +109,9 @@ export default class Upgrader extends Game {
         }
     }
 
-    async setGame(userID, gameState, session = null) {
+    async setGame(userId, gameState, session = null) {
         try {
-            const key = CACHE_KEYS.UPGRADER_GAME_BY_USER(userID);
+            const key = CACHE_KEYS.UPGRADER_GAME_BY_USER(userId.toString());
             await redis.set(key, JSON.stringify(gameState), "EX", 3600);
 
             const options = { upsert: true };
@@ -122,7 +122,7 @@ export default class Upgrader extends Game {
             await Gameplays.updateOne(
                 {
                     gamemode: "upgrader",
-                    participants: userID,
+                    participants: userId.toString(),
                     status: "ongoing",
                 },
                 gameState,
@@ -135,9 +135,9 @@ export default class Upgrader extends Game {
         }
     }
 
-    async deleteGame(userID, session = null) {
+    async deleteGame(userId, session = null) {
         try {
-            const key = CACHE_KEYS.UPGRADER_GAME_BY_USER(userID);
+            const key = CACHE_KEYS.UPGRADER_GAME_BY_USER(userId.toString());
             await redis.del(key);
 
             const options = {};
@@ -148,7 +148,7 @@ export default class Upgrader extends Game {
             await Gameplays.updateOne(
                 {
                     gamemode: "upgrader",
-                    participants: userID,
+                    participants: userId.toString(),
                     status: "ongoing",
                 },
                 { $set: { status: "completed", updatedAt: Date.now() } },
@@ -206,14 +206,16 @@ export default class Upgrader extends Game {
             }
 
             const fail = message => {
-                this.deleteGame(socket.cookie).catch(err =>
+                this.deleteGame(user._id).catch(err =>
                     console.error("Failed to clean up game:", err),
                 );
                 return socket.emit("upgrader:spin", { status: false, message });
             };
 
             // Check if user is already playing
-            const existingGame = await this.getGame(socket.cookie);
+            const user = await this.user(socket.cookie);
+            if (!user) return fail("Invalid user");
+            const existingGame = await this.getGame(user._id);
             if (existingGame) {
                 return fail("You are already playing");
             }
@@ -255,11 +257,10 @@ export default class Upgrader extends Game {
             }
 
             try {
-                await this.withLock(socket.cookie, async () => {
+                await this.withLock(user._id, async () => {
                     const session = await mongoose.startSession();
                     try {
                         session.startTransaction();
-                        const user = await this.user(socket.cookie, session);
                         if (!user) {
                             await session.abortTransaction();
                             return fail("Invalid user");
@@ -293,7 +294,7 @@ export default class Upgrader extends Game {
                         // Provably Fair seeds and commitment
                         const serverSeed = randomBytes(32).toString("hex");
                         const nonce = await redis.incr(
-                            CACHE_KEYS.GAMES_UPGRADER_NONCE_BY_USER(user.steamid),
+                            CACHE_KEYS.GAMES_UPGRADER_NONCE_BY_USER(user._id.toString()),
                         );
                         const serverSeedCommitment =
                             this.pf.computeServerSeedCommitment(serverSeed);
@@ -309,7 +310,7 @@ export default class Upgrader extends Game {
                         // Rest of the existing transaction code remains unchanged
                         const initialGameState = {
                             gamemode: "upgrader",
-                            participants: [socket.cookie],
+                            participants: [user._id],
                             status: "ongoing",
                             cost: data.amount,
                             multiplier: 1,
@@ -326,7 +327,7 @@ export default class Upgrader extends Game {
                             items: [data.item], // marketHashName
                             itemPools: [],
                             forces: [],
-                            gameID: `${socket.cookie}-${Date.now()}`,
+                            gameID: `${user._id.toString()}-${Date.now()}`,
                             createdAt: Date.now(),
                             updatedAt: Date.now(),
                         };
@@ -334,7 +335,7 @@ export default class Upgrader extends Game {
                         await Gameplays.updateOne(
                             {
                                 gamemode: "upgrader",
-                                participants: socket.cookie,
+                                participants: user._id,
                                 status: "ongoing",
                             },
                             initialGameState,
@@ -364,7 +365,7 @@ export default class Upgrader extends Game {
 
                         // Update the balance within the transaction
                         await this.addBalance(
-                            socket.cookie,
+                            user._id,
                             result.amount - data.amount,
                             null,
                             null,
@@ -386,7 +387,7 @@ export default class Upgrader extends Game {
                         await Gameplays.updateOne(
                             {
                                 gamemode: "upgrader",
-                                participants: socket.cookie,
+                                participants: user._id,
                                 status: "ongoing",
                             },
                             finalGameState,
@@ -397,7 +398,7 @@ export default class Upgrader extends Game {
                             [
                                 {
                                     game: "upgrader",
-                                    user: user.steamid,
+                                    user: user._id,
                                     wager: data.amount,
                                     earning: result.amount,
                                     pf: pfStart,
@@ -409,7 +410,7 @@ export default class Upgrader extends Game {
 
                         await session.commitTransaction();
 
-                        await this.updateRedisCache(socket.cookie, finalGameState);
+                        await this.updateRedisCache(user._id, finalGameState);
 
                         socket.emit("upgrader:spin", {
                             status: true,
@@ -427,7 +428,7 @@ export default class Upgrader extends Game {
                                 });
                                 await GamesDB.updateOne(
                                     {
-                                        user: user.steamid,
+                                        user: user._id,
                                         game: "upgrader",
                                         "pf.serverSeedCommitment": pfStart.serverSeedCommitment,
                                     },
@@ -459,7 +460,7 @@ export default class Upgrader extends Game {
                         }, 6000);
                     } catch (error) {
                         await session.abortTransaction();
-                        await this.deleteGame(socket.cookie);
+                        await this.deleteGame(user._id);
                         console.error("Transaction aborted:", error);
                         return fail("An error occurred during the transaction");
                     } finally {
@@ -467,7 +468,7 @@ export default class Upgrader extends Game {
                     }
                 });
             } catch (error) {
-                await this.deleteGame(socket.cookie);
+                await this.deleteGame(user._id);
                 console.error("Error in upgrader:spin:", error);
                 return fail(error.message || "An error occurred");
             }

@@ -21,7 +21,7 @@ router.get("/deposits", requireAuth, async (req, res) => {
             return res.status(400).json({ error: "User not found" });
         }
 
-        const deposits = await cryptoDepositsDB.find({ steamid: user.steamid }, { _id: 0 }).lean();
+        const deposits = await cryptoDepositsDB.find({ userId: user._id }, { _id: 0 }).lean();
         return res.json(deposits.reverse());
     } catch (e) {
         console.error("Get deposits error:", e);
@@ -38,7 +38,7 @@ router.get("/withdraws", requireAuth, async (req, res) => {
         }
 
         const withdraws = await cryptoWithdrawsDB
-            .find({ steamid: user.steamid }, { _id: 0 })
+            .find({ userId: user._id }, { _id: 0 })
             .lean();
         return res.json(withdraws.reverse());
     } catch (e) {

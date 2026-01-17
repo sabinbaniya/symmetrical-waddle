@@ -49,7 +49,8 @@ const kinguinSchema = new Schema({
         default: Date.now,
     },
     claimedBy: {
-        type: String,
+        type: Schema.Types.ObjectId,
+        ref: "users",
     },
     claimedAt: {
         type: Date,

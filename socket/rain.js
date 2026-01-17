@@ -161,7 +161,7 @@ export default class Rain {
             const amount = Math.floor(pot * share * 100) / 100;
 
             return {
-                steamid: participant.steamid,
+                userId: participant.userId,
                 username: participant.username,
                 amount: amount,
                 level: participant.level,
@@ -191,7 +191,7 @@ export default class Rain {
     async awardWinners(winners) {
         for (const winner of winners) {
             await userDB.updateOne(
-                { steamid: winner.steamid },
+                { _id: winner.userId },
                 // { $inc: { balance: winner.amount } }
                 { $inc: { sweepstakeBalance: winner.amount } },
             );
@@ -265,13 +265,13 @@ export default class Rain {
 
     // ==================== UTILITIES ====================
 
-    async getUserWager7d(steamid) {
+    async getUserWager7d(userId) {
         const sevenDaysAgo = new Date(Date.now() - this.WAGER_PERIOD_DAYS * 24 * 60 * 60 * 1000);
 
         const result = await gamesDB.aggregate([
             {
                 $match: {
-                    user: steamid,
+                    user: userId,
                     date: { $gte: sevenDaysAgo },
                 },
             },
@@ -341,7 +341,7 @@ export default class Rain {
         }
 
         const user = await GetUserByCookie(socket.cookie);
-        if (!user?.steamid) {
+        if (!user?._id) {
             return socket.emit("rain-response", {
                 status: false,
                 message: "Invalid user session.",
@@ -358,7 +358,7 @@ export default class Rain {
         }
 
         // Check if already joined
-        if (rain.participants.some(p => p.steamid === user.steamid)) {
+        if (rain.participants.some(p => p.userId.toString() === user._id.toString())) {
             return socket.emit("rain-response", {
                 status: false,
                 message: "You have already joined this rain.",
@@ -377,10 +377,10 @@ export default class Rain {
     }
 
     async addParticipant(rain, user) {
-        const wager7d = await this.getUserWager7d(user.steamid);
+        const wager7d = await this.getUserWager7d(user._id);
 
         const participant = {
-            steamid: user.steamid,
+            userId: user._id,
             username: user.username,
             avatar: user.avatar,
             level: Auth.expToLevel(user.experience),
@@ -457,7 +457,7 @@ export default class Rain {
     }
 
     async processTip(rain, user, amount) {
-        await userDB.updateOne({ steamid: user.steamid }, { $inc: { sweepstakeBalance: -amount } });
+        await userDB.updateOne({ _id: user._id }, { $inc: { sweepstakeBalance: -amount } });
 
         await rainDB.updateOne(
             { _id: rain._id },
@@ -465,7 +465,7 @@ export default class Rain {
                 $inc: { pot: amount },
                 $push: {
                     tips: {
-                        steamid: user.steamid,
+                        userId: user._id,
                         username: user.username,
                         amount: amount,
                         date: new Date(),
@@ -532,7 +532,7 @@ export default class Rain {
                 $inc: { pot: amount },
                 $push: {
                     tips: {
-                        steamid: user.steamid,
+                        userId: user._id,
                         username: `[ADMIN] ${user.username}`,
                         amount: amount,
                         date: new Date(),

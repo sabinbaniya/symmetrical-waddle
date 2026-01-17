@@ -12,7 +12,7 @@ import { GetSweepstakeBalanceForDeposit } from "../func/GetUsdToSweepstakeValue.
 export default class P2P {
     constructor() {
         this.pool = []; // Item Pool - These are items on the marketplace waiting for a buyer
-        this.connections = {}; // steamid: socketID
+        this.connections = {}; // userId: socketID
         this.getPool();
     }
 
@@ -84,9 +84,9 @@ export default class P2P {
         // If seller didn't confirm
         if (data.confirmations.seller === false) {
             // Refund buyer's sweepstake balance
-            // await userDB.updateOne({ steamid: data.buyer }, { $inc: { balance: data.item.price } });
+            // await userDB.updateOne({ _id: data.buyer }, { $inc: { balance: data.item.price } });
             await userDB.updateOne(
-                { steamid: data.buyer },
+                { _id: data.buyer },
                 { $inc: { sweepstakeBalance: data.item.price } },
             );
         }
@@ -94,9 +94,9 @@ export default class P2P {
         // If buyer didn't confirm
         else {
             // Refund buyer's balance
-            // await userDB.updateOne({ steamid: data.buyer }, { $inc: { balance: data.item.price } });
+            // await userDB.updateOne({ _id: data.buyer }, { $inc: { balance: data.item.price } });
             await userDB.updateOne(
-                { steamid: data.buyer },
+                { _id: data.buyer },
                 { $inc: { sweepstakeBalance: data.item.price } },
             );
         }
@@ -127,7 +127,7 @@ export default class P2P {
             }
 
             const user = await this.user(socket.cookie);
-            if (!user?.steamid) return;
+            if (!user?._id) return;
 
             if (!Array.isArray(datas))
                 return socket.emit("deposit-item", { status: false, error: "Invalid request" });
@@ -171,7 +171,7 @@ export default class P2P {
             const previousHistoryOfItem = await p2pDB.findOne({
                 "item.id": datas[0].id,
                 status: "marketplace",
-                seller: user.steamid,
+                seller: user._id,
             });
 
             if (previousHistoryOfItem) {
@@ -208,7 +208,7 @@ export default class P2P {
 
                     const item = await SimplifiedItem(item_raw, userInventory.assets, true);
 
-                    item["seller"] = user.steamid;
+                    item["seller"] = user._id;
                     item["rate"] = Math.max(-25, Math.min(25, data?.rate || 0));
 
                     toAdd.push(item);
@@ -234,7 +234,7 @@ export default class P2P {
 
                 // Add trade record
                 const tradeObject = {
-                    seller: user.steamid,
+                    seller: user._id,
                     item: {
                         appid: item["appid"],
                         id: item["id"],
@@ -256,7 +256,7 @@ export default class P2P {
 
             console.log("Pool:", this.pool);
 
-            await Auth.addNotification(user.steamid, {
+            await Auth.addNotification(user._id, {
                 date: Date.now(),
                 title: "Deposit Pending",
                 message: "Please wait until a buyer withdraws your item.",
@@ -276,10 +276,10 @@ export default class P2P {
             }
 
             const user = await this.user(socket.cookie);
-            if (!user?.steamid) return;
+            if (!user?._id) return;
 
             const item = this.pool.filter(
-                p => p["seller"] === user.steamid && p["id"] === data.id,
+                p => p["seller"].toString() === user._id.toString() && p["id"] === data.id,
             )?.[0];
             if (!item) return;
 
@@ -292,7 +292,7 @@ export default class P2P {
             this.pool = this.pool.filter(p => p["id"] !== data.id);
             await p2pDB.deleteOne({ "item.id": data.id });
 
-            await Auth.addNotification(user.steamid, {
+            await Auth.addNotification(user._id, {
                 date: Date.now(),
                 title: "Deposit Cancelled",
                 message: "Your deposit has been cancelled.",
@@ -312,7 +312,7 @@ export default class P2P {
             }
 
             const user = await this.user(socket.cookie);
-            if (!user?.steamid) return;
+            if (!user?._id) return;
 
             if (!user?.tradeURL) {
                 return socket.emit("withdraw-item", {
@@ -328,7 +328,7 @@ export default class P2P {
                 });
             }
 
-            const userCanWithdraw = await Auth.canWithdraw(user.steamid);
+            const userCanWithdraw = await Auth.canWithdraw(user._id);
             if (userCanWithdraw?.status === false) {
                 return socket.emit("withdraw-item", {
                     status: false,
@@ -353,7 +353,7 @@ export default class P2P {
                     }
 
                     // Check if seller and buyer is same user
-                    if (item["seller"] === user.steamid) {
+                    if (item["seller"].toString() === user._id.toString()) {
                         return socket.emit("withdraw-item", {
                             status: false,
                             error: "You cannot buy your own item",
@@ -402,7 +402,7 @@ export default class P2P {
                 let index = indexes[i];
 
                 // Start withdraw process
-                this.pool[index] = { ...this.pool[index], buyer: user.steamid, status: "pending" };
+                this.pool[index] = { ...this.pool[index], buyer: user._id, status: "pending" };
 
                 // Update transaction record
                 const _30_MIN = 1000 * 60 * 30;
@@ -410,7 +410,7 @@ export default class P2P {
                     .findOneAndUpdate(
                         { seller: item["seller"], "item.id": item.id },
                         {
-                            buyer: user.steamid,
+                            buyer: user._id,
                             deadline: Date.now() + _30_MIN,
                             status: "pending",
                         },
@@ -426,7 +426,7 @@ export default class P2P {
                 updated["buyer"] = {
                     avatar: user.avatar,
                     username: user.username,
-                    steamid: user.steamid,
+                    userId: user._id,
                 };
 
                 updates[item["seller"]] = [...(updates[item["seller"]] || []), updated];
@@ -434,7 +434,7 @@ export default class P2P {
 
             // Update buyer sweepstakeBalance
             await userDB.updateOne(
-                { steamid: user.steamid },
+                { _id: user._id },
                 { $inc: { sweepstakeBalance: -1 * totalCost } },
             );
 
@@ -442,7 +442,7 @@ export default class P2P {
                 io.to(this.connections[seller]).emit("seller-response", updates[seller]);
             }
 
-            await Auth.addNotification(user.steamid, {
+            await Auth.addNotification(user._id, {
                 date: Date.now(),
                 title: "Withdraw Pending",
                 message: "Please wait until seller sends you a trade offer.",
@@ -460,9 +460,9 @@ export default class P2P {
             }
 
             const user = await this.user(socket.cookie);
-            if (!user?.steamid) return;
+            if (!user?._id) return;
 
-            this.connections[user.steamid] = socket.id;
+            this.connections[user._id.toString()] = socket.id;
 
             const buyerResponse = [];
             const sellerResponse = [];
@@ -471,7 +471,7 @@ export default class P2P {
             for (let poolItem of this.pool) {
                 if (poolItem.status !== "marketplace" && poolItem.status !== "pending") continue;
 
-                if (poolItem["seller"] === user.steamid || poolItem["buyer"] === user.steamid) {
+                if (poolItem.seller.toString() === user._id.toString() || poolItem.buyer?.toString() === user._id.toString()) {
                     const item = await p2pDB.findOne({ "item.id": poolItem.id }, { _id: 0 }).lean();
                     if (!item) continue;
 
@@ -483,15 +483,15 @@ export default class P2P {
                     }
 
                     // Send seller information (both pending trades and marketplace listings)
-                    if (poolItem["seller"] === user.steamid) {
+                    if (poolItem["seller"].toString() === user._id.toString()) {
                         if (poolItem["buyer"]) {
                             // Has a buyer - pending trade
-                            const buyer = await userDB.findOne({ steamid: poolItem["buyer"] });
+                            const buyer = await userDB.findOne({ _id: poolItem["buyer"] });
 
                             item["buyer"] = {
                                 avatar: buyer.avatar,
                                 username: buyer.username,
-                                steamid: poolItem["buyer"],
+                                userId: poolItem["buyer"],
                             };
 
                             item["tradeLink"] = buyer.tradeURL;
@@ -501,7 +501,7 @@ export default class P2P {
                             item["tradeLink"] = null;
                         }
                         sellerResponse.push(item);
-                    } else if (poolItem["buyer"] === user.steamid) {
+                    } else if (poolItem["buyer"]?.toString() === user._id.toString()) {
                         // Add buyer information to the item
                         item["buyer"] = poolItem["buyer"];
                         buyerResponse.push(item);
@@ -515,7 +515,7 @@ export default class P2P {
                     const holds = await p2pDB
                         .find(
                             {
-                                seller: user.steamid,
+                                seller: user._id,
                                 status: "success",
                                 payoutReleased: { $ne: true },
                                 "item.appid": 730,
@@ -569,7 +569,7 @@ export default class P2P {
                 return socket.emit("create-trade", { status: false, error: "No buyer yet" });
             }
 
-            const buyer = await userDB.findOne({ steamid: item["buyer"] });
+            const buyer = await userDB.findOne({ _id: item["buyer"] });
             if (!buyer?.tradeURL) {
                 return socket.emit("create-trade", {
                     status: false,
@@ -592,7 +592,7 @@ export default class P2P {
                 }
 
                 const user = await this.user(socket.cookie);
-                if (!user?.steamid) return;
+                if (!user?._id) return;
 
                 const query = { "item.id": data.id };
                 query[data.position] = user.steamid;
@@ -628,7 +628,7 @@ export default class P2P {
                         // Immediate payout for non-CS2
                         // Check if user has a deposit bonus
                         const rewardRecord = await rewardsDB.findOne(
-                            { steamid: user.steamid },
+                            { _id: user._id },
                             { depositBonus: 1 },
                         );
 
@@ -638,7 +638,7 @@ export default class P2P {
 
                         const sweepstakeBalance = await GetSweepstakeBalanceForDeposit(addAmount);
                         await userDB.updateOne(
-                            { steamid: record.seller },
+                            { _id: user._id },
                             { $inc: { balance: addAmount, sweepstakeBalance } },
                         );
 
@@ -693,11 +693,11 @@ export default class P2P {
             }
 
             const user = await this.user(socket.cookie);
-            if (!user?.steamid) return;
+            if (!user?._id) return;
 
             // Seller marked trade as completed but buyer didn't receive the trade
             const record = await p2pDB.findOneAndUpdate(
-                { buyer: user.steamid, "item.id": data.id },
+                { buyer: user._id, "item.id": data.id },
                 { status: "failed" },
             );
 
@@ -706,7 +706,7 @@ export default class P2P {
             socket.emit("failed-trade", { id: data.id });
             io.to(this.connections[record["seller"]]).emit("failed-trade", { id: data.id });
 
-            await Auth.addNotification(user.steamid, {
+            await Auth.addNotification(user._id, {
                 date: Date.now(),
                 title: "Trade Failed",
                 message: "The trade has been marked as completed but you didn't receive the item.",

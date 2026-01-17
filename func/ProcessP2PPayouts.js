@@ -24,7 +24,7 @@ export default async function ProcessP2PPayouts() {
         try {
             // Compute seller payout, respecting deposit bonus if any
             const rewardRecord = await rewardsDB.findOne(
-                { steamid: record.seller },
+                { userId: record.seller },
                 { depositBonus: 1 },
             );
 
@@ -36,7 +36,7 @@ export default async function ProcessP2PPayouts() {
 
             // increment the add amount and the sweepstake balance, as per the site's config
             await userDB.updateOne(
-                { steamid: record.seller },
+                { _id: record.seller },
                 { $inc: { balance: addAmount, sweepstakeBalance } },
             );
 

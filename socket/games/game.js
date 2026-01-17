@@ -190,7 +190,7 @@ export default class Game extends Random {
     async addBalance(
         cookie,
         amount,
-        userID = null,
+        userId = null,
         user_ = null,
         session = null,
         _activeBalanceType = null,
@@ -200,8 +200,8 @@ export default class Game extends Random {
         if (cookie) {
             user = await this.user(cookie);
             if (!user) return false;
-        } else if (userID) {
-            user = await userDB.findOne({ steamid: userID }).session(session);
+        } else if (userId) {
+            user = await userDB.findOne({ _id: userId }).session(session);
             if (!user) return false;
         } else {
             user = user_;
@@ -225,7 +225,7 @@ export default class Game extends Random {
         await userDB
             .updateOne(
                 {
-                    steamid: user.steamid,
+                    _id: user._id,
                 },
                 {
                     $inc: {
@@ -239,14 +239,14 @@ export default class Game extends Random {
         return true;
     }
 
-    async addRequiredWagerAmount(cookie, amount, userID = null, user_ = null, session = null) {
+    async addRequiredWagerAmount(cookie, amount, userId = null, user_ = null, session = null) {
         let user;
 
         if (cookie) {
             user = await this.user(cookie);
             if (!user) return false;
-        } else if (userID) {
-            user = await userDB.findOne({ steamid: userID }).session(session);
+        } else if (userId) {
+            user = await userDB.findOne({ _id: userId }).session(session);
             if (!user) return false;
         } else {
             user = user_;
@@ -258,7 +258,7 @@ export default class Game extends Random {
 
         await userDB
             // requiredWagerBalance needs to be 10x the win amount
-            .updateOne({ steamid: user.steamid }, { $inc: { requiredWagerBalance: amount * 10 } })
+            .updateOne({ _id: user._id }, { $inc: { requiredWagerBalance: amount * 10 } })
             .session(session);
 
         return true;
@@ -281,11 +281,11 @@ export default class Game extends Random {
         // Update xp and collect notifications
         const notifications = [];
         for (const record of records) {
-            const user = await userDB.findOne({ steamid: record.user }).session(session);
+            const user = await userDB.findOne({ _id: record.user }).session(session);
 
             if (activeBalanceType !== "balance") {
                 await userDB.updateOne(
-                    { steamid: record.user },
+                    { _id: record.user },
                     { $inc: { experience: record.wager * 10 } },
                     { session: session },
                 );
@@ -297,7 +297,7 @@ export default class Game extends Random {
             const modifiedUserLevel = expToLevel(userEffectiveExp + record.wager * 10);
             if (userLevel !== modifiedUserLevel) {
                 notifications.push({
-                    steamid: record.user,
+                    userId: record.user,
                     notification: {
                         date: Date.now(),
                         title: "Level Up!",
@@ -307,9 +307,9 @@ export default class Game extends Random {
             }
         }
 
-        for (const { steamid, notification } of notifications) {
+        for (const { userId, notification } of notifications) {
             try {
-                await Auth.addNotification(steamid, notification);
+                await Auth.addNotification(userId, notification);
             } catch (error) {
                 console.error("Failed to send notification:", error);
                 // No need to throw error when sending notifications fails
@@ -354,8 +354,8 @@ export default class Game extends Random {
     }
 
     // User notification
-    async notification(steamid, { title, message }) {
-        await Auth.addNotification(steamid, {
+    async notification(userId, { title, message }) {
+        await Auth.addNotification(userId, {
             date: Date.now(),
             title,
             message,

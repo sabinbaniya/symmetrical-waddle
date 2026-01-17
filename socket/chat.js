@@ -132,11 +132,11 @@ export default class Chat {
         socket.on("disconnect", () => {
             if (this.clients?.[socket.id]) {
                 const client = this.clients[socket.id];
-                const onlineIndex = this.online?.[client.room]?.indexOf(client.steamid);
+                const onlineIndex = this.online?.[client.room]?.indexOf(client.userId.toString());
 
                 if (onlineIndex !== -1) {
                     this.online[client.room].splice(onlineIndex, 1);
-                    delete this.onlineUsers[client.room][client.steamid];
+                    delete this.onlineUsers[client.room][client.userId.toString()];
                 }
 
                 delete this.clients[socket.id];
@@ -182,23 +182,23 @@ export default class Chat {
                 try {
                     const user = await GetUserByCookie(socket.cookie);
 
-                    if (user?.steamid) {
+                    if (user?._id) {
                         this.clients[socket.id] = {
-                            steamid: user.steamid,
+                            userId: user._id,
                             room,
                         };
 
-                        if (!this.online?.[room]) this.online[room] = [user.steamid];
+                        if (!this.online?.[room]) this.online[room] = [user._id.toString()];
 
                         for (let r of Object.keys(this.online)) {
-                            if (this.online[r].includes(user.steamid)) {
-                                this.online[r].splice(this.online[r].indexOf(user.steamid), 1);
-                                delete this.onlineUsers[r][user.steamid];
+                            if (this.online[r].includes(user._id.toString())) {
+                                this.online[r].splice(this.online[r].indexOf(user._id.toString()), 1);
+                                delete this.onlineUsers[r][user._id.toString()];
                             }
                         }
 
-                        this.online[room].push(user.steamid);
-                        this.onlineUsers[room][user.steamid] = {
+                        this.online[room].push(user._id.toString());
+                        this.onlineUsers[room][user._id.toString()] = {
                             username: user.username,
                             avatar: user.avatar
                         };
@@ -246,7 +246,7 @@ export default class Chat {
             if (!socket.cookie) return;
 
             const user = await GetUserByCookie(socket.cookie);
-            if (!user?.steamid) return;
+            if (!user?._id) return;
 
             const room = data?.room;
             if (!allowedRooms.includes(room)) return;
@@ -323,7 +323,7 @@ export default class Chat {
 
                         await userDB.updateOne(
                             {
-                                steamid: target,
+                                _id: target,
                             },
                             {
                                 $set: { muted: muteDate },
@@ -338,7 +338,7 @@ export default class Chat {
                     } else if (command === "/ban") {
                         await userDB.updateOne(
                             {
-                                steamid: target,
+                                _id: target,
                             },
                             {
                                 $set: { banned: true },
@@ -353,7 +353,7 @@ export default class Chat {
                     } else if (command === "/unmute") {
                         await userDB.updateOne(
                             {
-                                steamid: target,
+                                _id: target,
                             },
                             {
                                 $set: { muted: null },
@@ -368,7 +368,7 @@ export default class Chat {
                     } else if (command === "/unban") {
                         await userDB.updateOne(
                             {
-                                steamid: target,
+                                _id: target,
                             },
                             {
                                 $set: { banned: false },
@@ -403,7 +403,7 @@ export default class Chat {
                 message: messageText,
                 date: Date.now(),
                 user: {
-                    steamid: user.steamid,
+                    userId: user._id,
                     username: user.username,
                     avatar: user.avatar,
                     level: Auth.expToLevel(user.experience),

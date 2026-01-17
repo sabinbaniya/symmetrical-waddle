@@ -580,7 +580,7 @@ export default class Unboxing extends Game {
                                 throw new Error("Invalid level number extracted from case ID");
                             }
 
-                            rewardResponse = await Rewards.dailyCases(user.steamid, level, session);
+                            rewardResponse = await Rewards.dailyCases(user._id, level, session);
                             if (!rewardResponse?.status) {
                                 throw new Error(
                                     rewardResponse.message || "Failed to claim daily case reward",
@@ -609,7 +609,7 @@ export default class Unboxing extends Game {
                             ? this.randomBytes(32).toString("hex")
                             : (await import("crypto")).randomBytes(32).toString("hex");
                         const nonce = await redis.incr(
-                            CACHE_KEYS.GAMES_UNBOXING_NONCE_BY_USER(user.steamid),
+                            CACHE_KEYS.GAMES_UNBOXING_NONCE_BY_USER(user._id.toString()),
                         );
                         const serverSeedCommitment =
                             this.pf.computeServerSeedCommitment(serverSeed);
@@ -646,7 +646,7 @@ export default class Unboxing extends Game {
                         const betAmount =
                             isLevelCase || isFreeCase ? 0 : casePrice * data.spinnerAmount;
                         pendingPayout = new PendingPayout({
-                            userId: user.steamid,
+                            userId: user._id,
                             betAmount,
                             multiplier: betAmount > 0 ? totalEarning / betAmount : totalEarning,
                             payoutAmount: totalEarning,
@@ -667,7 +667,7 @@ export default class Unboxing extends Game {
                         let balanceResponse;
                         if (isLevelCase || isFreeCase) {
                             if (updatedUser.activeBalanceType === "sweepstake") {
-                                await Affiliate.update("bonus", user.steamid, totalEarning, {
+                                await Affiliate.update("bonus", user._id, totalEarning, {
                                     session,
                                 });
                             }
@@ -711,7 +711,7 @@ export default class Unboxing extends Game {
                                 [
                                     {
                                         game: "unboxing",
-                                        user: user.steamid,
+                                        user: user._id,
                                         wager: casePrice * data.spinnerAmount,
                                         earning: totalEarning,
                                         pf: pfStart,
@@ -720,11 +720,11 @@ export default class Unboxing extends Game {
                                 session,
                                 user.activeBalanceType,
                             );
-                            if (case_.creator && case_.creator !== user.steamid) {
+                            if (case_.creator && case_.creator.toString() !== user._id.toString()) {
                                 try {
                                     // First verify that the creator exists
                                     const creatorExists = await User.findOne(
-                                        { steamid: case_.creator },
+                                        { _id: case_.creator },
                                         null,
                                         {
                                             session,
@@ -843,7 +843,7 @@ export default class Unboxing extends Game {
                             });
                             await GamesDB.updateOne(
                                 {
-                                    user: user.steamid,
+                                    user: user._id,
                                     game: "unboxing",
                                     "pf.serverSeedCommitment": _serverSeedCommitment,
                                 },
@@ -1104,7 +1104,7 @@ export default class Unboxing extends Game {
                                     session,
                                     playedWithBalanceType,
                                 );
-                                if (case_.creator && case_.creator !== userId) {
+                                if (case_.creator && userId.toString() !== case_.creator.toString()) {
                                     try {
                                         // First verify that the creator exists
                                         const creatorExists = await User.findById(case_.creator, {

@@ -2,8 +2,9 @@ import pkg from "mongoose";
 const { model, models, Schema } = pkg;
 
 const notificationsSchema = new Schema({
-    steamid: {
-        type: String,
+    userId: {
+        type: Schema.Types.ObjectId,
+        ref: "users",
         required: true,
         index: true,
     },

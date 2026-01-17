@@ -175,7 +175,7 @@ router.post("/create", async (req, res) => {
         const cookie = req.cookies["connect.sid"];
         const user = await GetUserByCookie(cookie);
 
-        if (!user?.steamid) {
+        if (!user?._id) {
             return res
                 .status(401)
                 .json({ status: false, message: "You must be logged in to create a case" });
@@ -277,7 +277,7 @@ router.post("/create", async (req, res) => {
                 .json({ status: false, message: "A case with this name already exists" });
 
         // Check if user has more than 50 cases
-        if (cases.filter(case_ => case_.creator === user.steamid).length >= 50)
+        if (cases.filter(case_ => case_.creator === user._id.toString()).length >= 50)
             return res
                 .status(400)
                 .json({ status: false, message: "You can only create up to 50 cases" });
@@ -323,7 +323,7 @@ router.post("/create", async (req, res) => {
             id: name.toLowerCase().replace(/ /g, "-"),
             name,
             price,
-            creator: user.steamid,
+            creator: user._id,
             items: selectedItemsFormatted,
             type: findCaseType(selectedItemsFormatted),
             usedBalanceType: user.activeBalanceType,

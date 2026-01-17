@@ -36,7 +36,7 @@ async function getSweepstakeBalanceForDeposit(deposit) {
 export const claimGiftCode = async (req, res) => {
     try {
         const user = req.user;
-        if (!user || !user.steamid) {
+        if (!user) {
             return res
                 .status(401)
                 .json({ success: false, message: "Please login to claim gift code" });
@@ -56,7 +56,7 @@ export const claimGiftCode = async (req, res) => {
             result = await session.withTransaction(async () => {
                 const doc = await KinguinCodes.findOneAndUpdate(
                     { code, hasClaimed: false },
-                    { $set: { hasClaimed: true, claimedBy: user.steamid, claimedAt: new Date() } },
+                    { $set: { hasClaimed: true, claimedBy: user._id, claimedAt: new Date() } },
                     { new: true, session },
                 );
 
@@ -76,13 +76,13 @@ export const claimGiftCode = async (req, res) => {
                 const sweepstakeBalance = await getSweepstakeBalanceForDeposit(usdCents / 100);
 
                 await User.updateOne(
-                    { steamid: user.steamid },
+                    { _id: user._id },
                     { $inc: { balance: usdCents / 100, sweepstakeBalance } },
                     { session },
                 );
 
                 const giftcardDeposit = new GiftcardDeposits({
-                    steamid: user.steamid,
+                    userId: user._id,
                     code,
                     amount: (usdCents / 100).toString(), // Model expects String for amount
                     usdAmount: usdCents / 100,
@@ -99,7 +99,7 @@ export const claimGiftCode = async (req, res) => {
                 // Frontend: await Affiliate.update("deposit", user.steamid, usdCents / 100, { session });
                 // If backend lib is different, we might need adjustment.
                 // For now assuming it's compatible or we fix it.
-                await Affiliate.update("deposit", user.steamid, usdCents / 100, { session });
+                await Affiliate.update("deposit", user._id, usdCents / 100, { session });
 
                 return {
                     success: true,

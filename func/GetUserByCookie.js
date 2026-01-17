@@ -26,15 +26,14 @@ export async function GetUserByCookie(cookie, session) {
 
         if (!sessionData.passport || !sessionData.passport.user) return null;
 
-        const steamid = sessionData.passport.user;
-
-        const user = await Auth.getUserBySteamid(steamid, null, session);
+        const userId = sessionData.passport.user;
+        const user = await Auth.getUserById(userId, session);
 
         if (user?.banned) {
             return null;
         }
 
-        if (!user?.steamid) return null;
+        if (!user) return null;
         return user;
     } catch (e) {
         console.error(e);

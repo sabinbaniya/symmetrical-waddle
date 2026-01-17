@@ -3,11 +3,13 @@ const { model, models, Schema } = pkg;
 
 const affiliateSchema = new Schema({
     user: {
-        type: String,
+        type: Schema.Types.ObjectId,
+        ref: "users",
         required: true,
     },
     affiliates: {
-        type: [String],
+        type: [Schema.Types.ObjectId],
+        ref: "users",
         default: [],
     },
     code: {
@@ -31,7 +33,8 @@ const affiliateSchema = new Schema({
             new Schema(
                 {
                     user: {
-                        type: String,
+                        type: Schema.Types.ObjectId,
+                        ref: "users",
                         required: true,
                     },
                     amount: {
@@ -53,7 +56,8 @@ const affiliateSchema = new Schema({
             new Schema(
                 {
                     user: {
-                        type: String,
+                        type: Schema.Types.ObjectId,
+                        ref: "users",
                         required: true,
                     },
                     amount: {
@@ -75,7 +79,8 @@ const affiliateSchema = new Schema({
             new Schema(
                 {
                     user: {
-                        type: String,
+                        type: Schema.Types.ObjectId,
+                        ref: "users",
                         required: true,
                     },
                     amount: {

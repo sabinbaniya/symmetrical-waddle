@@ -20,7 +20,7 @@ router.get("/notifications", requireAuth, async (req, res) => {
             return res.status(400).json({ error: "User not found" });
         }
 
-        const data = await Auth.getNotifications(user.steamid);
+        const data = await Auth.getNotifications(user._id);
         if (!data?.notifications || !data.notifications.length) {
             return res.json([]);
         }
@@ -46,7 +46,7 @@ router.delete("/notifications", requireAuth, async (req, res) => {
             return res.status(400).json({ error: "User not found" });
         }
 
-        await Auth.clearNotifications(user.steamid);
+        await Auth.clearNotifications(user._id);
         return res.json({ success: true });
     } catch (error) {
         console.error("Clear notifications error:", error);
@@ -95,7 +95,7 @@ router.post("/vault/lock", requireAuth, async (req, res) => {
         }
 
         await userDB.updateOne(
-            { steamid: user.steamid },
+            { _id: user._id },
             {
                 $inc: {
                     balance: -amount,
@@ -121,7 +121,7 @@ router.post("/vault/unlock", requireAuth, async (req, res) => {
         }
 
         // Fetch fresh user data to get current vault balance and lock
-        const currentUser = await userDB.findOne({ steamid: user.steamid }).lean();
+        const currentUser = await userDB.findOne({ _id: user._id }).lean();
 
         if (!currentUser) {
             return res.status(400).json({ error: "User not found" });
@@ -136,7 +136,7 @@ router.post("/vault/unlock", requireAuth, async (req, res) => {
         }
 
         await userDB.updateOne(
-            { steamid: user.steamid },
+            { _id: user._id },
             {
                 $inc: {
                     balance: currentUser.vaultBalance,
@@ -171,7 +171,7 @@ router.put("/trade-url", requireAuth, async (req, res) => {
             return res.status(400).json({ error: "Invalid trade URL" });
         }
 
-        await Auth.setTradeURL(user.steamid, url);
+        await Auth.setTradeURL(user._id, url);
         return res.json({ success: true });
     } catch (error) {
         console.error("Set trade URL error:", error);
@@ -202,7 +202,7 @@ router.put("/email", requireAuth, async (req, res) => {
             return res.status(400).json({ error: "Invalid email" });
         }
 
-        await Auth.setEmail(user.steamid, email);
+        await Auth.setEmail(user._id, email);
         return res.json({ success: true });
         */
     } catch (error) {

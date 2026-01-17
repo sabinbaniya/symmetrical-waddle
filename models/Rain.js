@@ -10,8 +10,9 @@ const rainSchema = new Schema({
     participants: {
         type: [
             {
-                steamid: {
-                    type: String,
+                userId: {
+                    type: Schema.Types.ObjectId,
+                    ref: "users",
                     required: true,
                 },
                 username: {
@@ -71,7 +72,7 @@ const rainSchema = new Schema({
                 distributedAt: Date,
                 winners: [
                     {
-                        steamid: String,
+                        userId: { type: Schema.Types.ObjectId, ref: "users" },
                         username: String,
                         amount: Number,
                         level: Number,
@@ -85,7 +86,7 @@ const rainSchema = new Schema({
     tips: {
         type: [
             {
-                steamid: String,
+                userId: { type: Schema.Types.ObjectId, ref: "users" },
                 username: String,
                 amount: Number,
                 date: Date,

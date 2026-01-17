@@ -36,8 +36,7 @@ export const getLeaderboard = async (req, res) => {
             },
             {
                 $project: {
-                    _id: 0,
-                    steamid: 1,
+                    _id: 1,
                     avatar: 1,
                     username: 1,
                 },
@@ -50,7 +49,7 @@ export const getLeaderboard = async (req, res) => {
                 const wagerResult = await Games.aggregate([
                     {
                         $match: {
-                            user: user.steamid,
+                            user: user._id,
                             date: {
                                 $gte: startDate,
                                 $lt: endDate,
@@ -76,8 +75,8 @@ export const getLeaderboard = async (req, res) => {
         // Sort by wager descending
         usersWithWager.sort((a, b) => b.wager - a.wager);
 
-        // Remove steamid before sending to client
-        const result = usersWithWager.map(({ steamid, ...rest }) => rest);
+        // Remove _id before sending to client
+        const result = usersWithWager.map(({ _id, ...rest }) => rest);
 
         return res.status(200).json(result);
     } catch (error) {

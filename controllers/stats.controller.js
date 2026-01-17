@@ -7,46 +7,46 @@ import GiftcardDeposits from "../models/Deposits/Giftcard.js";
 import P2P from "../models/P2P.js";
 
 // --- Profile Stats Helpers ---
-const getWagerAmount = async userID => {
+const getWagerAmount = async userId => {
     const result = await Games.aggregate([
-        { $match: { user: userID } },
+        { $match: { user: userId } },
         { $group: { _id: null, total: { $sum: "$wager" } } },
     ]);
     return result?.[0]?.total || 0;
 };
 
-const getEarningAmount = async userID => {
+const getEarningAmount = async userId => {
     const result = await Games.aggregate([
-        { $match: { user: userID } },
+        { $match: { user: userId } },
         { $group: { _id: null, total: { $sum: "$earning" } } },
     ]);
     return result?.[0]?.total || 0;
 };
 
-const getDepositAmount = async userID => {
+const getDepositAmount = async userId => {
     const crypto = await CryptoDeposits.aggregate([
-        { $match: { steamid: userID } },
+        { $match: { userId: userId } },
         { $group: { _id: null, total: { $sum: "$usdAmount" } } },
     ]);
     const p2p = await P2P.aggregate([
-        { $match: { seller: userID } },
+        { $match: { seller: userId } },
         { $group: { _id: null, total: { $sum: "$item.price" } } },
     ]);
     const giftcard = await GiftcardDeposits.aggregate([
-        { $match: { steamid: userID } },
+        { $match: { userId: userId } },
         { $group: { _id: null, total: { $sum: "$usdAmount" } } },
     ]);
 
     return (crypto?.[0]?.total || 0) + (p2p?.[0]?.total || 0) + (giftcard?.[0]?.total || 0);
 };
 
-const getWithdrawAmount = async userID => {
+const getWithdrawAmount = async userId => {
     const crypto = await CryptoWithdraws.aggregate([
-        { $match: { steamid: userID } },
+        { $match: { userId: userId } },
         { $group: { _id: null, total: { $sum: "$usdAmount" } } },
     ]);
     const p2p = await P2P.aggregate([
-        { $match: { buyer: userID } },
+        { $match: { buyer: userId } },
         { $group: { _id: null, total: { $sum: "$item.price" } } },
     ]);
 
@@ -61,10 +61,10 @@ export const getProfileStatsController = async (req, res) => {
         if (!user || !user.steamid) return res.status(401).json({ error: "Unauthorized" });
 
         const [wagerAmount, earningAmount, depositAmount, withdrawAmount] = await Promise.all([
-            getWagerAmount(user.steamid),
-            getEarningAmount(user.steamid),
-            getDepositAmount(user.steamid),
-            getWithdrawAmount(user.steamid),
+            getWagerAmount(user._id),
+            getEarningAmount(user._id),
+            getDepositAmount(user._id),
+            getWithdrawAmount(user._id),
         ]);
 
         return res.json({
@@ -223,7 +223,7 @@ export const getFairnessController = async (req, res) => {
             status: { $in: ["completed", "lost", "abandoned"] },
         };
         const gamesQuery = { user: user.steamid };
-        const battlesQuery = { participants: user.steamid, status: "finished" };
+        const battlesQuery = { participants: user._id, status: "finished" };
 
         if (search) {
             const regex = { $regex: search, $options: "i" };
@@ -262,7 +262,7 @@ export const getFairnessController = async (req, res) => {
             Games.countDocuments(gamesQuery),
             Gameplays.find(battlesQuery).sort(gamesSort).lean(),
             Gameplays.countDocuments(battlesQuery),
-            Games.find({ user: user.steamid, game: "Battles" }) // This seems redundant if gamesQuery covers it, but reused logic
+            Games.find({ user: user._id, game: "Battles" }) // This seems redundant if gamesQuery covers it, but reused logic
                 .select("pf date earning wager game user")
                 .sort(gamesSort)
                 .lean(),
@@ -311,7 +311,7 @@ export const getFairnessController = async (req, res) => {
             betAmount: d.cost ?? null,
             payout:
                 Array.isArray(d.earnings) && d.participants
-                    ? (d.earnings[d.participants.indexOf(user.steamid)] ?? null)
+                    ? (d.earnings[d.participants.findIndex(p => p.toString() === user._id.toString())] ?? null)
                     : null,
             status: null,
             completedAt: d.date ? new Date(d.date).getTime() : null,

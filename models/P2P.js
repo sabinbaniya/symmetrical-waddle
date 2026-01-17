@@ -3,10 +3,12 @@ const { model, models, Schema } = pkg;
 
 const p2pSchema = new Schema({
     buyer: {
-        type: String,
+        type: Schema.Types.ObjectId,
+        ref: "users",
     },
     seller: {
-        type: String,
+        type: Schema.Types.ObjectId,
+        ref: "users",
         required: true,
     },
     deadline: {

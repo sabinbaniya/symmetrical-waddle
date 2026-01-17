@@ -269,19 +269,19 @@ export default class Battles extends Game {
             }
 
             // Balance check + deduct (inside TX)
-            const userBalance = await Auth.getUserBalance(user.steamid, null, session);
+            const userBalance = await Auth.getUserBalance(user._id, null, session);
             if (userBalance < cost) {
                 await session.abortTransaction();
                 return { status: false, message: "Insufficient balance" };
             }
-            await this.addBalance(null, -cost, user.steamid, null, session);
+            await this.addBalance(null, -cost, user._id, null, session);
             // Construct game
             const gameID = uuidv4();
             const maxParticipants = MAX_PARTICIPANTS_MAP[data.gamemode] || 0;
             const participants = Array(maxParticipants).fill(null);
             const avatars = Array(maxParticipants).fill(null);
             const names = Array(maxParticipants).fill(null);
-            participants[0] = user.steamid;
+            participants[0] = user._id;
             avatars[0] = user.avatar;
             names[0] = user.username;
             // Fill with bots if requested
@@ -419,7 +419,7 @@ export default class Battles extends Game {
             // Human user path
             // Already joined?
             if (
-                gameDoc.participants.includes(user.steamid) &&
+                gameDoc.participants.some(p => p?.toString() === user._id.toString()) &&
                 process.env.NODE_ENV !== "development"
             ) {
                 await session.abortTransaction();
@@ -440,12 +440,12 @@ export default class Battles extends Game {
             if (!isSponsored) {
                 const gameCost = gameDoc.cost;
 
-                const userBalance = await Auth.getUserBalance(user.steamid, null, session);
+                const userBalance = await Auth.getUserBalance(user._id, null, session);
                 if (userBalance < gameCost) {
                     await session.abortTransaction();
                     return { status: false, message: "Insufficient balance" };
                 }
-                await this.addBalance(null, -gameCost, user.steamid, null, session);
+                await this.addBalance(null, -gameCost, user._id, null, session);
             }
             // Resolve target spot
             let targetSpot = spot;
@@ -470,7 +470,7 @@ export default class Battles extends Game {
                 { gameID, [`participants.${targetSpot}`]: null },
                 {
                     $set: {
-                        [`participants.${targetSpot}`]: user.steamid,
+                        [`participants.${targetSpot}`]: user._id,
                         [`avatars.${targetSpot}`]: user.avatar,
                         [`names.${targetSpot}`]: user.username,
                     },
@@ -512,7 +512,7 @@ export default class Battles extends Game {
                 return { status: false, message: "Game already started" };
             }
             // Check if user is part of participants
-            const spotIndex = gameDoc.participants.findIndex(p => p === user.steamid);
+            const spotIndex = gameDoc.participants.findIndex(p => p?.toString() === user._id.toString());
             if (spotIndex === -1) {
                 await session.abortTransaction();
                 return { status: false, message: "You are not in this game" };
@@ -523,7 +523,7 @@ export default class Battles extends Game {
             const isSponsored = gameDoc.sponsor && gameDoc.sponsor[spotIndex];
             // Atomically clear only if still occupied by this user
             const update = await GameplaysDB.updateOne(
-                { gameID, [`participants.${spotIndex}`]: user.steamid },
+                { gameID, [`participants.${spotIndex}`]: user._id },
                 {
                     $set: {
                         [`participants.${spotIndex}`]: null,
@@ -556,7 +556,7 @@ export default class Battles extends Game {
                 await this.addBalance(null, gameDoc.cost, gameDoc.participants[0], null, session);
             } else {
                 // Refund the leaving player if the spot was not sponsored
-                await this.addBalance(null, gameDoc.cost, user.steamid, null, session);
+                await this.addBalance(null, gameDoc.cost, user._id, null, session);
             }
             await session.commitTransaction();
             session.endSession();
@@ -805,7 +805,7 @@ export default class Battles extends Game {
             // Payouts
             for (let i = 0; i < winners.length; i++) {
                 const w = winners[i];
-                if (typeof w === "string" && w.startsWith(this.bot.steamid)) continue;
+                if (typeof w === "string" && w === "BOT") continue;
                 await this.addBalance(null, prizeDollars, w, null, session);
             }
 
@@ -882,7 +882,7 @@ export default class Battles extends Game {
             const records = [];
             for (let i = 0; i < game.participants.length; i++) {
                 const u = game.participants[i];
-                if (typeof u === "string" && u.startsWith(this.bot.steamid)) continue;
+                if (typeof u === "string" && u === "BOT") continue;
                 records.push({
                     game: "Battles",
                     user: u,
@@ -953,7 +953,7 @@ export default class Battles extends Game {
             const game = await this.getGame(data.gameID);
             if (!game)
                 return socket.emit("battles:join", { status: false, message: "Game not found" });
-            if (data?.addingBot && user.steamid !== game.participants[0])
+            if (data?.addingBot && user._id.toString() !== game.participants[0].toString())
                 return socket.emit("battles:join", {
                     status: false,
                     message: "You are not the creator of this game",
@@ -1056,7 +1056,7 @@ export default class Battles extends Game {
                     message: "Invalid spot",
                 });
             // Only creator can sponsor
-            if (game.participants[0] !== user.steamid)
+            if (game.participants[0].toString() !== user._id.toString())
                 return socket.emit("battles:sponsor", {
                     status: false,
                     message: "You are not the creator of this game",
@@ -1069,23 +1069,14 @@ export default class Battles extends Game {
                 });
             }
             // Check if the sponsor is trying to sponsor their own spot
-            if (game.participants[0] === game.participants[data.spot]) {
+            if (game.participants[0].toString() === game.participants[data.spot]?.toString()) {
                 return socket.emit("battles:sponsor", {
                     status: false,
                     message: "You cannot sponsor your own spot",
                 });
             }
-            // Check balance
-            const userBalance = await Auth.getUserBalance(user.steamid);
-            if (userBalance < game.cost)
-                return socket.emit("battles:sponsor", {
-                    status: false,
-                    message: "Insufficient balance",
-                });
-            if (!game?.sponsor) game.sponsor = Array(game.maxParticipants).fill(0);
-            game.sponsor[data.spot] = 1;
             // Reduce balance
-            await this.addBalance(null, -game.cost, user.steamid);
+            await this.addBalance(null, -game.cost, user._id);
             // Persist sponsor flag
             await this.setGame(data.gameID, game);
             await GameplaysDB.updateOne(

@@ -1,7 +1,7 @@
 import pkg from "mongoose";
 const { model, models, Schema } = pkg;
 
-const logins = ["steam", "discord", "google"];
+const logins = ["steam", "discord", "google", "email"];
 
 const userSchema = new Schema({
     username: {
@@ -38,6 +38,10 @@ const userSchema = new Schema({
     tradeURL: {
         type: String,
         required: false,
+    },
+    password: {
+        type: String,
+        select: false,
     },
     role: {
         type: String,

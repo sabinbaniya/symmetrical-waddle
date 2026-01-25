@@ -8,7 +8,7 @@ This document provides documentation for the authentication endpoints available 
 
 ## 🔐 Authentication Flow
 
-The backend uses [Passport.js](https://www.passportjs.org/) for session-based authentication.
+The backend uses [Passport.js](https://www.passportjs.org/) for session-based authentication. It supports social login (Steam, Google, Discord) and local email/password authentication.
 
 1. **Initiate Login**: The frontend redirects the user to the respective provider's endpoint (e.g., `/auth/steam`).
 2. **Provider Redirect**: The backend redirects the user to the social provider's login page.
@@ -109,9 +109,67 @@ Retrieves the currently authenticated user's profile information.
     }
     ```
 - **Status 401 (Unauthorized)**: No active session.
-    ```json
     {
         "user": null
+    }
+    ```
+
+---
+
+### 6. POST `/auth/register`
+
+Registers a new user with email and password.
+
+#### Request
+
+- **Method**: `POST`
+- **URL**: `/auth/register`
+- **Headers**: `Content-Type: application/json`
+- **Body**:
+    ```json
+    {
+        "username": "User123",  // Min 3, Max 30 chars
+        "email": "user@example.com",
+        "password": "securePassword"  // Min 6 chars
+    }
+    ```
+
+#### Response
+
+- **Status 201 (Created)**: Returns the newly created user object and starts a session.
+- **Status 400 (Bad Request)**: Validation error or email already exists.
+    ```json
+    {
+        "message": "Username must be at least 3 characters"
+    }
+    ```
+
+---
+
+### 7. POST `/auth/login`
+
+Authenticates a user with email and password.
+
+#### Request
+
+- **Method**: `POST`
+- **URL**: `/auth/login`
+- **Headers**: `Content-Type: application/json`
+- **Body**:
+    ```json
+    {
+        "email": "user@example.com",
+        "password": "securePassword"
+    }
+    ```
+
+#### Response
+
+- **Status 200 (OK)**: Returns the user object and sets the session cookie.
+- **Status 400 (Bad Request)**: Validation error or invalid credentials.
+    ```json
+    {
+        "message": "Invalid email format"
     }
     ```
 

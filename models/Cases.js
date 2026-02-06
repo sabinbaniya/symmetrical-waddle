@@ -12,6 +12,14 @@ const casesSchema = new Schema({
         required: true,
         index: true,
     },
+    image: {
+        type: String,
+        required: false,
+    },
+    category: {
+        type: String,
+        default: "community",
+    },
     price: {
         type: Number,
         default: 0,

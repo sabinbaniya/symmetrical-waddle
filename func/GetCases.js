@@ -17,17 +17,22 @@ function isCacheValid() {
 }
 
 // Helper function to format cases data
-function formatCasesData(cases, caseType) {
+function formatCasesData(cases, caseType, category = null) {
     return cases
         .map(c => {
+            const matchesCategory = !category || c.category === category;
+
             if (
                 (caseType === false && !c.name.includes("Level") && c.id !== "free-case") ||
                 (caseType === true && c.name.includes("Level")) ||
                 caseType === "all"
             ) {
+                if (!matchesCategory) return null;
+
                 return {
                     id: c.id,
                     name: c.name,
+                    category: c.category,
                     price: c.price,
                     creator: c.creator,
                     items: c.items.map(i => ({
@@ -93,7 +98,7 @@ async function fetchFreshCases() {
     return cases;
 }
 
-export default async function GetCases(caseType = false, forceUpdate = false) {
+export default async function GetCases(caseType = false, category = null, forceUpdate = false) {
     let cases;
 
     // Return cached data if valid and not currently updating
@@ -104,5 +109,5 @@ export default async function GetCases(caseType = false, forceUpdate = false) {
         cases = await fetchFreshCases();
     }
 
-    return formatCasesData(cases, caseType);
+    return formatCasesData(cases, caseType, category);
 }

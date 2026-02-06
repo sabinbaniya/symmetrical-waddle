@@ -21,7 +21,8 @@ router.get("/", async (req, res) => {
     try {
         const caseType =
             req.query.type === "true" ? true : req.query.type === "all" ? "all" : false;
-        const cases = await GetCases(caseType);
+        const category = req.query.category || null;
+        const cases = await GetCases(caseType, category);
         return res.json(cases);
     } catch (error) {
         console.error("GET /api/cases error:", error);
@@ -47,10 +48,14 @@ router.get("/pagination", async (req, res) => {
         const currentPage = Number(req.query.page ?? 1);
         const perPage = Number(req.query.limit ?? 10);
         const selectedType = req.query.type ?? "all";
+        const category = req.query.category || null;
         const searchTerm = req.query.search ?? "";
         const sortOption = req.query.sort ?? "Most Recent";
 
         const andConditions = [];
+        if (category) {
+            andConditions.push({ category });
+        }
         if (selectedType === "cs2" || selectedType === "rust") {
             andConditions.push({ type: selectedType });
         }
@@ -80,6 +85,7 @@ router.get("/pagination", async (req, res) => {
         const filteredCases = cases.map(c => ({
             id: c.id,
             name: c.name,
+            category: c.category,
             price: c.price,
             creator: c.creator,
             items: c.items.map(i => ({
@@ -128,6 +134,7 @@ router.get("/free", async (req, res) => {
         return res.json({
             id: freeCase.id,
             name: freeCase.name,
+            category: freeCase.category,
             price: freeCase.price,
             items: freeCase.items.map(i => ({
                 appid: i.appid,
@@ -188,7 +195,7 @@ router.post("/create", async (req, res) => {
             });
         }
 
-        let { name, items } = req.body;
+        let { name, items, image, category } = req.body;
 
         if (!name || !items) {
             return res.status(400).json({ status: false, message: "Missing required fields" });
@@ -322,6 +329,8 @@ router.post("/create", async (req, res) => {
         const newCaseObj = {
             id: name.toLowerCase().replace(/ /g, "-"),
             name,
+            category: category || "community",
+            image,
             price,
             creator: user._id,
             items: selectedItemsFormatted,

@@ -24,7 +24,7 @@ export default async function GetCase(caseID, force = false) {
         return cached.data;
     }
 
-    const cases = await GetCases("all", force);
+    const cases = await GetCases("all", null, force);
 
     for (let case_ of cases) {
         if (case_.id === caseID) {
@@ -38,6 +38,7 @@ export default async function GetCase(caseID, force = false) {
             const result = {
                 id: case_.id,
                 name: case_.name,
+                category: case_.category,
                 price: case_.price,
                 creator: case_.creator,
                 items: case_.items

@@ -469,42 +469,42 @@ export default class Unboxing extends Game {
                     message: "Bets are currently disabled",
                 });
             }
-            if (data.caseID?.includes("level") || data.caseID === "free-case")
+
+            const caseIDs = data.caseIDs;
+            if (!Array.isArray(caseIDs) || caseIDs.length === 0 || caseIDs.length > 5) {
                 return socket.emit("unboxing:demo-spin", {
                     status: false,
-                    message: "You cannot demo spin level cases",
+                    message: "Invalid case IDs. Please provide 1-5 cases.",
                 });
-            if (!ALLOWED_SPINNER_AMOUNTS.includes(data.spinnerAmount))
-                return socket.emit("unboxing:demo-spin", {
-                    status: false,
-                    message: "Invalid amount",
-                });
+            }
+
+            const results = [];
+            let totalEarning = 0;
             try {
-                data.caseID = this.validateAndDecodeCaseId(data?.caseID);
+                for (let i = 0; i < caseIDs.length; i++) {
+                    const caseID = this.validateAndDecodeCaseId(caseIDs[i]);
+                    if (caseID.includes("level") || caseID === "free-case") {
+                        return socket.emit("unboxing:demo-spin", {
+                            status: false,
+                            message: "You cannot demo spin level cases",
+                        });
+                    }
+                    const { data: result, status, message } = await this.start(caseID);
+                    if (!status) {
+                        return socket.emit("unboxing:demo-spin", { status: false, message });
+                    }
+                    results.push(result);
+                    totalEarning += result.earning;
+                }
             } catch (err) {
                 return socket.emit("unboxing:demo-spin", {
                     status: false,
                     message: err.message || "Invalid case ID",
                 });
             }
-            const results = [];
-            let _status = true,
-                _message;
-            let totalEarning = 0;
-            for (let i = 0; i < data.spinnerAmount; i++) {
-                const { data: result, status, message } = await this.start(data.caseID);
-                if (!status) {
-                    _status = false;
-                    _message = message;
-                    break;
-                }
-                results.push(result);
-                totalEarning += result.earning;
-            }
-            if (!_status)
-                return socket.emit("unboxing:demo-spin", { status: _status, message: _message });
+
             socket.emit("unboxing:demo-spin", {
-                status: _status,
+                status: true,
                 data: { pools: results, earning: totalEarning },
             });
         });
@@ -517,38 +517,56 @@ export default class Unboxing extends Game {
                 });
             }
             if (!this.rateLimit(socket, "unboxing:spin")) return;
-            const isLevelCase = data.caseID?.startsWith("level-");
-            const isFreeCase = data.caseID === "free-case";
+
+            const caseIDs = data.caseIDs;
+            if (!Array.isArray(caseIDs) || caseIDs.length === 0 || caseIDs.length > 5) {
+                return socket.emit("unboxing:spin", {
+                    status: false,
+                    message: "Invalid case IDs. Please provide 1-5 cases.",
+                });
+            }
+
             const user = await this.user(socket.cookie);
             if (!user)
                 return socket.emit("unboxing:spin", { status: false, message: "Invalid user" });
-            if (
-                !ALLOWED_SPINNER_AMOUNTS.includes(data.spinnerAmount) ||
-                ((isLevelCase || isFreeCase) && data.spinnerAmount !== 1)
-            )
+
+            // Fetch and validate all cases upfront
+            const cases = [];
+            let totalCasePrice = 0;
+            const hasSpecialCase = caseIDs.some(
+                id => id?.startsWith("level-") || id === "free-case",
+            );
+
+            if (hasSpecialCase && caseIDs.length > 1) {
                 return socket.emit("unboxing:spin", {
                     status: false,
-                    message: "Invalid amount",
+                    message: "Special cases must be opened individually",
                 });
+            }
+
             try {
-                data.caseID = this.validateAndDecodeCaseId(data?.caseID);
+                for (let i = 0; i < caseIDs.length; i++) {
+                    const decodedId = this.validateAndDecodeCaseId(caseIDs[i]);
+                    let case_ = await GetCase(decodedId);
+                    if (!case_ || !case_.items?.length) {
+                        case_ = await GetCase(decodedId, true);
+                        if (!case_ || !case_.items?.length) {
+                            throw new Error(`Invalid case: ${decodedId}`);
+                        }
+                    }
+                    cases.push({ ...case_, id: decodedId });
+                    totalCasePrice += case_.price;
+                }
             } catch (err) {
                 return socket.emit("unboxing:spin", {
                     status: false,
                     message: err.message || "Invalid case ID",
                 });
             }
-            let case_ = await GetCase(data.caseID);
-            if (!case_ || !case_.items?.length) {
-                case_ = await GetCase(data.caseID, true);
-                if (!case_ || !case_.items?.length) {
-                    return socket.emit("unboxing:spin", {
-                        status: false,
-                        message: "Invalid case",
-                    });
-                }
-            }
-            const casePrice = case_.price;
+
+            const isLevelCase = caseIDs[0]?.startsWith("level-");
+            const isFreeCase = caseIDs[0] === "free-case";
+
             // Require clientSeed for PF
             if (!data.clientSeed || typeof data.clientSeed !== "string") {
                 return socket.emit("unboxing:spin", {
@@ -596,69 +614,72 @@ export default class Unboxing extends Game {
                         //         );
                         //     }
                         // }
-                        if (
-                            (updatedUser[updatedUser.activeBalanceType] <
-                                casePrice * data.spinnerAmount ||
-                                casePrice * data.spinnerAmount <= 0) &&
-                            !isLevelCase &&
-                            !isFreeCase
-                        ) {
-                            throw new Error("Insufficient balance");
-                        }
-                        const serverSeed = this.randomBytes
-                            ? this.randomBytes(32).toString("hex")
-                            : (await import("crypto")).randomBytes(32).toString("hex");
-                        const nonce = await redis.incr(
-                            CACHE_KEYS.GAMES_UNBOXING_NONCE_BY_USER(user._id.toString()),
-                        );
-                        const serverSeedCommitment =
-                            this.pf.computeServerSeedCommitment(serverSeed);
-                        const pfStart = {
-                            serverSeedCommitment,
-                            clientSeed: data.clientSeed,
-                            nonce,
-                        };
-                        socket.emit("unboxing:pf", pfStart);
-                        // capture for later reveal
-                        _serverSeed = serverSeed;
-                        _serverSeedCommitment = serverSeedCommitment;
-                        _nonce = nonce;
-
-                        const results = [];
-                        let totalEarning = 0;
-                        for (let i = 0; i < data.spinnerAmount; i++) {
-                            const {
-                                data: result,
-                                status,
-                                message,
-                            } = await this.start(null, case_, pfStart);
-                            if (!status) {
-                                throw new Error(message || "An error occurred during spin");
+                            if (
+                                (updatedUser[updatedUser.activeBalanceType] < totalCasePrice ||
+                                    totalCasePrice < 0) &&
+                                !isLevelCase &&
+                                !isFreeCase
+                            ) {
+                                throw new Error("Insufficient balance");
                             }
-                            results.push(result);
-                            totalEarning += result.earning;
-                        }
+                            const serverSeed = this.randomBytes
+                                ? this.randomBytes(32).toString("hex")
+                                : (await import("crypto")).randomBytes(32).toString("hex");
+                            const nonce = await redis.incr(
+                                CACHE_KEYS.GAMES_UNBOXING_NONCE_BY_USER(user._id.toString()),
+                            );
+                            const serverSeedCommitment =
+                                this.pf.computeServerSeedCommitment(serverSeed);
+                            const pfStart = {
+                                serverSeedCommitment,
+                                clientSeed: data.clientSeed,
+                                nonce,
+                            };
+                            socket.emit("unboxing:pf", pfStart);
+                            // capture for later reveal
+                            _serverSeed = serverSeed;
+                            _serverSeedCommitment = serverSeedCommitment;
+                            _nonce = nonce;
 
-                        if (totalEarning > MAX_WIN_USD) {
-                            totalEarning = MAX_WIN_USD;
-                        }
+                            const results = [];
+                            let totalEarning = 0;
+                            for (let i = 0; i < cases.length; i++) {
+                                // Add offset to PF context for unique results per case
+                                const {
+                                    data: result,
+                                    status,
+                                    message,
+                                } = await this.start(null, cases[i], {
+                                    ...pfStart,
+                                    nonce: pfStart.nonce + i * 100, // Large enough offset to avoid overlap
+                                    serverSeed, // start() needs serverSeed to derive
+                                });
+                                if (!status) {
+                                    throw new Error(message || "An error occurred during spin");
+                                }
+                                results.push({ ...result, caseId: cases[i].id });
+                                totalEarning += result.earning;
+                            }
 
-                        const betAmount =
-                            isLevelCase || isFreeCase ? 0 : casePrice * data.spinnerAmount;
-                        pendingPayout = new PendingPayout({
-                            userId: user._id,
-                            betAmount,
-                            multiplier: betAmount > 0 ? totalEarning / betAmount : totalEarning,
-                            payoutAmount: totalEarning,
-                            game: "unboxing",
-                            gameData: {
-                                caseId: data.caseID,
-                                spinnerAmount: data.spinnerAmount,
-                                results: results.map(r => ({
-                                    item: r.item,
-                                    force: r.force,
-                                })),
-                            },
+                            if (totalEarning > MAX_WIN_USD) {
+                                totalEarning = MAX_WIN_USD;
+                            }
+
+                            const betAmount = isLevelCase || isFreeCase ? 0 : totalCasePrice;
+                            pendingPayout = new PendingPayout({
+                                userId: user._id,
+                                betAmount,
+                                multiplier: betAmount > 0 ? totalEarning / betAmount : totalEarning,
+                                payoutAmount: totalEarning,
+                                game: "unboxing",
+                                gameData: {
+                                    caseIds: cases.map(c => c.id),
+                                    results: results.map(r => ({
+                                        item: r.item,
+                                        force: r.force,
+                                        caseId: r.caseId,
+                                    })),
+                                },
                             status: "pending",
                             scheduledFor: new Date(),
                             playedWithBalanceType: updatedUser.activeBalanceType,
@@ -701,18 +722,21 @@ export default class Unboxing extends Game {
                         if (!balanceResponse) {
                             throw new Error("Balance update failed");
                         }
-                        await casesDB.updateOne(
-                            { id: data.caseID },
-                            { $inc: { spins: data.spinnerAmount } },
-                            { session },
-                        );
+                        for (let i = 0; i < cases.length; i++) {
+                            await casesDB.updateOne(
+                                { id: cases[i].id },
+                                { $inc: { spins: 1 } },
+                                { session },
+                            );
+                        }
+
                         if (!isLevelCase && !isFreeCase) {
                             await this.saveGame(
                                 [
                                     {
                                         game: "unboxing",
                                         user: user._id,
-                                        wager: casePrice * data.spinnerAmount,
+                                        wager: totalCasePrice,
                                         earning: totalEarning,
                                         pf: pfStart,
                                     },
@@ -720,49 +744,96 @@ export default class Unboxing extends Game {
                                 session,
                                 user.activeBalanceType,
                             );
-                            if (case_.creator && case_.creator.toString() !== user._id.toString()) {
-                                try {
-                                    // First verify that the creator exists
-                                    const creatorExists = await User.findOne(
-                                        { _id: case_.creator },
-                                        null,
-                                        {
-                                            session,
-                                        },
-                                    );
-                                    if (!creatorExists) {
-                                        console.warn(`Creator does not exist: ${case_.creator}`);
-                                    } else {
-                                        let creatorShare = 0.02;
-                                        if (casePrice >= 25) creatorShare = 0.03;
-                                        if (casePrice >= 50) creatorShare = 0.04;
-                                        let reward = Math.floor(
-                                            casePrice * data.spinnerAmount * creatorShare,
-                                        );
-                                        const balanceResult = await this.addBalance(
+
+                            // Handle creator rewards for each case
+                            for (const case_ of cases) {
+                                if (
+                                    case_.creator &&
+                                    case_.creator.toString() !== user._id.toString()
+                                ) {
+                                    try {
+                                        const creatorExists = await User.findOne(
+                                            { _id: case_.creator },
                                             null,
-                                            reward,
-                                            case_.creator,
-                                            null,
-                                            session,
+                                            { session },
                                         );
-                                        if (!balanceResult) {
-                                            console.error(
-                                                `Failed to add balance for creator ${case_.creator}`,
+                                        if (creatorExists) {
+                                            let creatorShare = 0.02;
+                                            if (case_.price >= 25) creatorShare = 0.03;
+                                            if (case_.price >= 50) creatorShare = 0.04;
+                                            let reward = Math.floor(case_.price * creatorShare);
+                                            await this.addBalance(
+                                                null,
+                                                reward,
+                                                case_.creator,
+                                                null,
+                                                session,
                                             );
-                                            throw new Error("Failed to add balance for creator");
                                         }
+                                    } catch (error) {
+                                        console.error("Error processing creator reward:", error);
                                     }
-                                } catch (error) {
-                                    console.error("Error processing creator reward:", error);
-                                    throw error;
                                 }
                             }
                         }
                         await session.commitTransaction();
                         pendingPayout.status = "completed";
                         await pendingPayout.save();
-                        return { results, totalEarning };
+
+                        // Prepare data for announcement and proof reveal
+                        const result = { results, totalEarning };
+                        
+                        socket.emit("unboxing:spin", {
+                            status: true,
+                            data: { pools: result.results, earning: result.totalEarning },
+                        });
+
+                        // Add delayed job for announcement
+                        await this.addDelayedJob(
+                            {
+                                type: "unboxing-spin-announcement",
+                                user: {
+                                    avatar: user.avatar,
+                                    username: user.username,
+                                },
+                                result: {
+                                    totalEarning: result.totalEarning,
+                                    wager: totalCasePrice,
+                                    multiplier: totalCasePrice > 0 ? result.totalEarning / totalCasePrice : result.totalEarning,
+                                    items: result.results.map(i => ({
+                                        image: i.item.image,
+                                        price: i.item.price,
+                                        marketHashName: i.item.marketHashName,
+                                        percentage: i.item.percentage,
+                                    })),
+                                },
+                            },
+                            SPIN_DURATION,
+                        );
+
+                        // Reveal proof after ~4 seconds
+                        setTimeout(async () => {
+                            try {
+                                if (_serverSeed && _serverSeedCommitment) {
+                                    socket.emit("unboxing:proof", {
+                                        serverSeed: _serverSeed,
+                                        serverSeedCommitment: _serverSeedCommitment,
+                                        clientSeed: _clientSeed,
+                                        nonce: _nonce,
+                                    });
+                                    await GamesDB.updateOne(
+                                        {
+                                            user: user._id,
+                                            game: "unboxing",
+                                            "pf.serverSeedCommitment": _serverSeedCommitment,
+                                        },
+                                        { $set: { "pf.serverSeed": _serverSeed } },
+                                    );
+                                }
+                            } catch {}
+                        }, 4000);
+
+                        return result;
                     } catch (err) {
                         if (pendingPayout) {
                             try {
@@ -818,8 +889,8 @@ export default class Unboxing extends Game {
                         },
                         result: {
                             totalEarning: result.totalEarning,
-                            wager: casePrice * data.spinnerAmount,
-                            multiplier: result.totalEarning / (casePrice * data.spinnerAmount),
+                            wager: totalCasePrice,
+                            multiplier: totalCasePrice > 0 ? result.totalEarning / totalCasePrice : result.totalEarning,
                             items: result.results.map(i => ({
                                 image: i.item.image,
                                 price: i.item.price,
@@ -946,22 +1017,25 @@ export default class Unboxing extends Game {
                 try {
                     const { userId, gameData, playedWithBalanceType } = pendingPayout;
                     const { caseId, spinnerAmount, retryCount = 0 } = gameData || {};
-                    // Validate caseId format before processing
-                    if (typeof caseId !== "string" || !this.isValidCaseId(caseId)) {
-                        console.error(
-                            `Invalid case ID format in payout ${pendingPayout._id}: ${caseId}`,
-                        );
+                    if (!userId || (!gameData.caseIds && (!gameData.caseId || typeof gameData.caseId !== "string" || !this.isValidCaseId(gameData.caseId)))) {
+                        console.error("Invalid pending payout data:", pendingPayout);
                         pendingPayout.status = "failed";
-                        pendingPayout.failureReason = "Invalid case ID format";
+                        pendingPayout.failureReason = "Invalid payout or case ID data";
                         await pendingPayout.save();
                         continue;
                     }
-                    if (!userId || !caseId || spinnerAmount === undefined) {
-                        console.error("Invalid pending payout data:", pendingPayout);
-                        pendingPayout.status = "failed";
-                        pendingPayout.failureReason = "Invalid payout data";
-                        await pendingPayout.save();
-                        continue;
+
+                    // If it's a multi-case payout, we skip the single caseId validation
+                    if (gameData.caseIds && Array.isArray(gameData.caseIds)) {
+                        for (const id of gameData.caseIds) {
+                            if (typeof id !== "string" || !this.isValidCaseId(id)) {
+                                pendingPayout.status = "failed";
+                                pendingPayout.failureReason = `Invalid case ID format: ${id}`;
+                                await pendingPayout.save();
+                                continue;
+                            }
+                        }
+                        if (pendingPayout.status === "failed") continue;
                     }
                     console.log(
                         `Processing retry for payout ${pendingPayout._id} (attempt ${retryCount + 1})`,
@@ -1023,10 +1097,28 @@ export default class Unboxing extends Game {
                         // }
                         const results = [];
                         let totalEarning = 0;
-                        for (let i = 0; i < spinnerAmount; i++) {
-                            const { data: result } = await this.start(null, case_);
-                            results.push(result);
-                            totalEarning += result.earning;
+                        const caseIds = gameData.caseIds || [gameData.caseId];
+                        const spinnerAmountValue = gameData.spinnerAmount || 1;
+
+                        const processorCases = [];
+                        let totalBetAmt = 0;
+
+                        for (const id of caseIds) {
+                            const c = await GetCase(id);
+                            if (!c || !c.items?.length) {
+                                throw new Error(`Invalid case during retry: ${id}`);
+                            }
+                            processorCases.push(c);
+                            totalBetAmt += c.price * (gameData.caseIds ? 1 : spinnerAmountValue);
+                        }
+
+                        for (let i = 0; i < processorCases.length; i++) {
+                            const loopCount = gameData.caseIds ? 1 : spinnerAmountValue;
+                            for (let j = 0; j < loopCount; j++) {
+                                const { data: result } = await this.start(null, processorCases[i]);
+                                results.push(result);
+                                totalEarning += result.earning;
+                            }
                         }
 
                         if (totalEarning > MAX_WIN_USD) {
@@ -1039,12 +1131,11 @@ export default class Unboxing extends Game {
                         }));
                         pendingPayout.payoutAmount = totalEarning;
                         pendingPayout.multiplier =
-                            betAmount > 0 ? totalEarning / betAmount : totalEarning;
+                            totalBetAmt > 0 ? totalEarning / totalBetAmt : totalEarning;
 
                         if (!isLevelCase && !isFreeCase) {
-                            // const currentBalance = user.balance;
                             const currentBalance = user[playedWithBalanceType] || 0;
-                            if (currentBalance < betAmount) {
+                            if (currentBalance < totalBetAmt) {
                                 throw new Error("Insufficient balance during retry");
                             }
                         }
@@ -1056,9 +1147,9 @@ export default class Unboxing extends Game {
 
                             if (isFreeCase) {
                                 await this.addRequiredWagerAmount(
-                                    socket.cookie,
-                                    totalEarning,
                                     null,
+                                    totalEarning,
+                                    userId,
                                     null,
                                     session,
                                 );
@@ -1075,7 +1166,7 @@ export default class Unboxing extends Game {
                         } else {
                             balanceResponse = await this.addBalance(
                                 null,
-                                totalEarning - betAmount,
+                                totalEarning - totalBetAmt,
                                 userId,
                                 null,
                                 session,
@@ -1085,11 +1176,15 @@ export default class Unboxing extends Game {
                         if (!balanceResponse) {
                             throw new Error("Balance update failed during retry");
                         }
-                        await casesDB.updateOne(
-                            { id: caseId },
-                            { $inc: { spins: spinnerAmount } },
-                            { session },
-                        );
+
+                        for (const c of processorCases) {
+                            await casesDB.updateOne(
+                                { id: c.id },
+                                { $inc: { spins: gameData.caseIds ? 1 : spinnerAmountValue } },
+                                { session },
+                            );
+                        }
+
                         if (!isLevelCase && !isFreeCase) {
                             try {
                                 await this.saveGame(
@@ -1097,59 +1192,49 @@ export default class Unboxing extends Game {
                                         {
                                             game: "unboxing",
                                             user: userId,
-                                            wager: betAmount,
+                                            wager: totalBetAmt,
                                             earning: totalEarning,
                                         },
                                     ],
                                     session,
                                     playedWithBalanceType,
                                 );
-                                if (case_.creator && userId.toString() !== case_.creator.toString()) {
-                                    try {
-                                        // First verify that the creator exists
-                                        const creatorExists = await User.findById(case_.creator, {
-                                            session,
-                                        });
-                                        if (!creatorExists) {
-                                            console.warn(
-                                                `Creator does not exist: ${case_.creator}`,
-                                            );
-                                        } else {
-                                            let creatorShare = 0.02;
-                                            if (casePrice >= 25) creatorShare = 0.03;
-                                            if (casePrice >= 50) creatorShare = 0.04;
-                                            let reward = Math.floor(
-                                                casePrice * spinnerAmount * creatorShare,
-                                            );
 
-                                            const balanceResult = await this.addBalance(
-                                                null,
-                                                reward,
-                                                case_.creator,
-                                                null,
+                                for (const c of processorCases) {
+                                    if (c.creator && userId.toString() !== c.creator.toString()) {
+                                        try {
+                                            const creatorExists = await User.findById(c.creator, {
                                                 session,
-                                                case_.usedBalanceType,
-                                            );
-                                            if (!balanceResult) {
-                                                console.error(
-                                                    `Failed to add balance for creator ${case_.creator}`,
+                                            });
+                                            if (creatorExists) {
+                                                let creatorShare = 0.02;
+                                                if (c.price >= 25) creatorShare = 0.03;
+                                                if (c.price >= 50) creatorShare = 0.04;
+                                                let reward = Math.floor(
+                                                    c.price *
+                                                        (gameData.caseIds ? 1 : spinnerAmountValue) *
+                                                        creatorShare,
                                                 );
-                                                throw new Error(
-                                                    "Failed to add balance for creator",
+
+                                                await this.addBalance(
+                                                    null,
+                                                    reward,
+                                                    c.creator,
+                                                    null,
+                                                    session,
+                                                    c.usedBalanceType,
                                                 );
                                             }
+                                        } catch (error) {
+                                            console.error(
+                                                "Error processing creator reward during retry:",
+                                                error,
+                                            );
                                         }
-                                    } catch (error) {
-                                        console.error(
-                                            "Error processing creator reward during retry:",
-                                            error,
-                                        );
-                                        throw error;
                                     }
                                 }
                             } catch (err) {
                                 console.error("Failed to save game history for retry:", err);
-                                // We don't rethrow this error because the main operations succeeded
                             }
                         }
                         pendingPayout.status = "completed";

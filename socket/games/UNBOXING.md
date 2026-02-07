@@ -1,67 +1,93 @@
-# Case Unboxing Socket Documentation
+# Case Unboxing
 
-Case Unboxing allows users to open cases to win items. It supports single or multiple spins and demo mode.
+### Events
 
-## Events
+#### Client -> Server
 
-### Client -> Server
+**`unboxing:spin`**
 
-#### `unboxing:spin`
+Opens one or more cases with real balance.
 
-Opens a case with real balance.
+* **Payload**:
 
-- **Payload**:
-    ```json
-    {
-        "caseID": "case-id", // e.g., "blue-case" or "level-10"
-        "spinnerAmount": 1, // 1, 2, 3, or 4
-        "clientSeed": "my-seed"
-    }
-    ```
-- **Response (Emit)**: Responds directly via `unboxing:spin` event with success/failure and results.
+  ```json
+  {
+      "caseIDs": ["case-id-1", "case-id-2"], // Array of 1-5 case IDs
+      "clientSeed": "my-seed"
+  }
+  ```
+* **Constraints**:
+  - `caseIDs` must be an array with 1 to 5 items.
+  - Special cases (`level-X` or `free-case`) must be opened individually (array length 1).
+* **Response (Emit)**: Responds directly via `unboxing:spin` event with success/failure and results.
 
-#### `unboxing:demo-spin`
+**`unboxing:demo-spin`**
 
-Simulates a case opening without using balance.
+Simulates case opening without using the user's balance.
 
-- **Payload**:
-    ```json
-    {
-        "caseID": "case-id",
-        "spinnerAmount": 1
-    }
-    ```
-- **Response (Emit)**: `unboxing:demo-spin`.
+* **Payload**:
 
-### Server -> Client
+  ```json
+  {
+      "caseIDs": ["case-id-1", "case-id-2"] // Array of 1-5 case IDs
+  }
+  ```
+* **Response (Emit)**: `unboxing:demo-spin`.
 
-#### `unboxing:pf`
+#### Server -> Client
+
+**`unboxing:pf`**
 
 Emitted immediately before the result to establish the Provably Fair commitment.
 
-- **Payload**:
-    ```json
-    {
-        "serverSeedCommitment": "hash",
-        "clientSeed": "seed",
-        "nonce": 42
-    }
-    ```
+* **Payload**:
 
-#### `unboxing:spin` (Response)
+  ```json
+  {
+      "serverSeedCommitment": "hash",
+      "clientSeed": "seed",
+      "nonce": 42
+  }
+  ```
+
+**`unboxing:spin` (Response)**
 
 Returns the result of the spin.
 
-- **Payload (Success)**:
-    ```json
-    {
-      "status": true,
-      "results": [
+* **Payload (Success)**:
+
+  ```json
+  {
+    "status": true,
+    "data": {
+      "pools": [
         {
           "item": { ... }, // Won item
-          "force": 123     // The winning index in the item pool (visuals)
+          "force": 123,    // Winning index (visuals)
+          "caseId": "case-id-1"
+        },
+        {
+          "item": { ... },
+          "force": 456,
+          "caseId": "case-id-2"
         }
       ],
-      "totalEarning": 50.00
+      "earning": 50.00 // Total earning across all cases
     }
-    ```
+  }
+  ```
+
+**`unboxing:proof`**
+
+Returns the server seed and nonce for verification after the animation is finished (~4 seconds).
+
+* **Payload**:
+
+  ```json
+  {
+      "serverSeed": "original-server-seed",
+      "serverSeedCommitment": "hash",
+      "clientSeed": "user-seed",
+      "nonce": 42
+  }
+  ```

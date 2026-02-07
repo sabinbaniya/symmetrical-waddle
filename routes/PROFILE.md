@@ -284,6 +284,111 @@ Update the user's email address.
 
 ---
 
+### 8. PUT `/profile/client-seed`
+
+Update the user's Provably Fair client seed.
+
+**Authentication**: Required
+
+#### Validation Constraints:
+- **Min Length**: 4 characters
+- **Max Length**: 64 characters
+- **Allowed**: Alphanumeric, `-`, and `_`
+
+#### Request Body
+
+```json
+{
+    "clientSeed": "your-new-seed_123"
+}
+```
+
+#### Response
+
+**Success Response (200)**:
+
+```json
+{
+    "success": true
+}
+```
+
+**Error Responses**:
+- `401 Unauthorized`
+- `400 Bad Request`: Validation error
+
+---
+
+### 9. GET `/profile/details`
+
+Get extended profile information including personal info and shipping address.
+
+**Authentication**: Required
+
+#### Response
+
+**Success Response (200)**:
+
+```json
+{
+    "success": true,
+    "data": {
+        "username": "PlayerName",
+        "firstName": "John",
+        "lastName": "Doe",
+        "phone": "+1234567890",
+        "shippingAddress": {
+            "addressLine1": "123 Main St",
+            "addressLine2": "Apt 4B",
+            "city": "London",
+            "zipCode": "E1 6AN",
+            "state": "Greater London",
+            "country": "United Kingdom"
+        }
+    }
+}
+```
+
+---
+
+### 10. PUT `/profile/details`
+
+Update profile details and shipping address. All fields are optional.
+
+**Authentication**: Required
+
+#### Request Body
+
+```json
+{
+    "username": "NewUsername",
+    "firstName": "John",
+    "lastName": "Doe",
+    "phone": "+1234567890",
+    "shippingAddress": {
+        "addressLine1": "123 Main St",
+        "city": "London",
+        "country": "United Kingdom"
+    }
+}
+```
+
+#### Logic:
+- **Username**: If provided and different from current, it checks for uniqueness.
+- **Partial Updates**: You can provide only the fields you wish to change.
+
+#### Response
+
+**Success Response (200)**:
+
+```json
+{
+    "success": true
+}
+```
+
+---
+
 ## Usage Examples
 
 ### Frontend Integration
@@ -433,6 +538,32 @@ const setTradeURL = async url => {
         console.error("Error setting trade URL:", error);
         return false;
     }
+};
+```
+
+#### Update Client Seed
+
+```javascript
+const updateClientSeed = async (clientSeed) => {
+    const response = await fetch("/profile/client-seed", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ clientSeed })
+    });
+    return await response.json();
+};
+```
+
+#### Update Profile Details
+
+```javascript
+const updateDetails = async (details) => {
+    const response = await fetch("/profile/details", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(details)
+    });
+    return await response.json();
 };
 ```
 

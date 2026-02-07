@@ -1,8 +1,31 @@
-import express from "express";
 import Auth from "../lib/auth.js";
 import userDB from "../models/User.js";
+import { z } from "zod";
 
 const router = express.Router();
+
+const clientSeedSchema = z.object({
+    clientSeed: z
+        .string()
+        .min(4, "Client seed must be at least 4 characters")
+        .max(64, "Client seed must be at most 64 characters")
+        .regex(/^[a-zA-Z0-9\-_]+$/, "Client seed can only contain alphanumeric characters, dashes, and underscores"),
+});
+
+const userDetailsUpdateSchema = z.object({
+    username: z.string().min(3, "Username must be at least 3 characters").max(30, "Username must be at most 30 characters").optional(),
+    firstName: z.string().max(50, "First name is too long").optional(),
+    lastName: z.string().max(50, "Last name is too long").optional(),
+    phone: z.string().max(20, "Phone number is too long").optional(),
+    shippingAddress: z.object({
+        addressLine1: z.string().max(100).optional(),
+        addressLine2: z.string().max(100).optional(),
+        city: z.string().max(50).optional(),
+        zipCode: z.string().max(20).optional(),
+        state: z.string().max(50).optional(),
+        country: z.string().max(50).optional(),
+    }).optional(),
+});
 
 // Authentication middleware
 const requireAuth = (req, res, next) => {
@@ -207,6 +230,102 @@ router.put("/email", requireAuth, async (req, res) => {
         */
     } catch (error) {
         console.error("Update email error:", error);
+        return res.status(500).json({ error: "Internal server error" });
+    }
+});
+
+// PUT /profile/client-seed - Update client seed
+router.put("/client-seed", requireAuth, async (req, res) => {
+    try {
+        const user = req.user;
+        if (!user?._id) {
+            return res.status(400).json({ error: "User not found" });
+        }
+
+        const validation = clientSeedSchema.safeParse(req.body);
+        if (!validation.success) {
+            return res.status(400).json({ error: validation.error.issues[0].message });
+        }
+
+        const { clientSeed } = validation.data;
+
+        await Auth.setClientSeed(user._id, clientSeed);
+        return res.json({ success: true });
+    } catch (error) {
+        console.error("Update client seed error:", error);
+        return res.status(500).json({ error: "Internal server error" });
+    }
+});
+
+// GET /profile/details - Get personal info and shipping address
+router.get("/details", requireAuth, async (req, res) => {
+    try {
+        const user = req.user;
+        if (!user?._id) {
+            return res.status(400).json({ error: "User not found" });
+        }
+
+        const details = await Auth.getUserDetails(user._id);
+        
+        return res.json({
+            success: true,
+            data: {
+                username: user.username,
+                firstName: details.firstName,
+                lastName: details.lastName,
+                phone: details.phone,
+                shippingAddress: details.shippingAddress,
+            }
+        });
+    } catch (error) {
+        console.error("Get profile details error:", error);
+        return res.status(500).json({ error: "Internal server error" });
+    }
+});
+
+// PUT /profile/details - Update personal info and shipping address
+router.put("/details", requireAuth, async (req, res) => {
+    try {
+        const user = req.user;
+        if (!user?._id) {
+            return res.status(400).json({ error: "User not found" });
+        }
+
+        const validation = userDetailsUpdateSchema.safeParse(req.body);
+        if (!validation.success) {
+            return res.status(400).json({ error: validation.error.issues[0].message });
+        }
+
+        const { username, firstName, lastName, phone, shippingAddress } = validation.data;
+
+        // 1. Handle username update (User model)
+        if (username && username !== user.username) {
+            const existing = await userDB.findOne({ username, _id: { $ne: user._id } });
+            if (existing) {
+                return res.status(400).json({ error: "Username already taken" });
+            }
+            await userDB.updateOne({ _id: user._id }, { username });
+        }
+
+        // 2. Handle personal and shipping info (UserDetails model)
+        const detailsUpdate = {};
+        if (firstName !== undefined) detailsUpdate.firstName = firstName;
+        if (lastName !== undefined) detailsUpdate.lastName = lastName;
+        if (phone !== undefined) detailsUpdate.phone = phone;
+        if (shippingAddress !== undefined) {
+            // Merge shipping address to allow partial updates if needed, 
+            // but here we expect the full object or nested keys.
+            // For simplicity, we'll replace the full sub-object if provided.
+            detailsUpdate.shippingAddress = shippingAddress;
+        }
+
+        if (Object.keys(detailsUpdate).length > 0) {
+            await Auth.updateUserDetails(user._id, detailsUpdate);
+        }
+
+        return res.json({ success: true });
+    } catch (error) {
+        console.error("Update profile details error:", error);
         return res.status(500).json({ error: "Internal server error" });
     }
 });

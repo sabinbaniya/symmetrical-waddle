@@ -135,6 +135,11 @@ const userSchema = new Schema({
         type: Number,
         default: 0,
     },
+    clientSeed: {
+        type: String,
+        required: false,
+        default: "",
+    },
 });
 
 export default models?.users || model("users", userSchema);

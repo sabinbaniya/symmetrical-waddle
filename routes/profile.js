@@ -1,3 +1,4 @@
+import express from "express";
 import Auth from "../lib/auth.js";
 import userDB from "../models/User.js";
 import { z } from "zod";
@@ -39,7 +40,7 @@ const requireAuth = (req, res, next) => {
 router.get("/notifications", requireAuth, async (req, res) => {
     try {
         const user = req.user;
-        if (!user?.steamid) {
+        if (!user?._id) {
             return res.status(400).json({ error: "User not found" });
         }
 
@@ -65,7 +66,7 @@ router.get("/notifications", requireAuth, async (req, res) => {
 router.delete("/notifications", requireAuth, async (req, res) => {
     try {
         const user = req.user;
-        if (!user?.steamid) {
+        if (!user?._id) {
             return res.status(400).json({ error: "User not found" });
         }
 
@@ -99,7 +100,7 @@ router.get("/user/:id", async (req, res) => {
 router.post("/vault/lock", requireAuth, async (req, res) => {
     try {
         const user = req.user;
-        if (!user?.steamid) {
+        if (!user?._id) {
             return res.status(400).json({ error: "User not found" });
         }
 
@@ -115,6 +116,11 @@ router.post("/vault/lock", requireAuth, async (req, res) => {
 
         if (deadline < Date.now()) {
             return res.status(400).json({ error: "Invalid deadline" });
+        }
+
+        // Check if user has enough balance
+        if (user.balance < amount) {
+            return res.status(400).json({ error: "Insufficient balance" });
         }
 
         await userDB.updateOne(
@@ -139,7 +145,7 @@ router.post("/vault/lock", requireAuth, async (req, res) => {
 router.post("/vault/unlock", requireAuth, async (req, res) => {
     try {
         const user = req.user;
-        if (!user?.steamid) {
+        if (!user?._id) {
             return res.status(400).json({ error: "User not found" });
         }
 
@@ -165,7 +171,7 @@ router.post("/vault/unlock", requireAuth, async (req, res) => {
                     balance: currentUser.vaultBalance,
                 },
                 vaultBalance: 0,
-                vaultLock: currentUser.vaultLock,
+                vaultLock: null,
             },
         );
 
@@ -180,7 +186,7 @@ router.post("/vault/unlock", requireAuth, async (req, res) => {
 router.put("/trade-url", requireAuth, async (req, res) => {
     try {
         const user = req.user;
-        if (!user?.steamid) {
+        if (!user?._id) {
             return res.status(400).json({ error: "User not found" });
         }
 
@@ -312,11 +318,14 @@ router.put("/details", requireAuth, async (req, res) => {
         if (firstName !== undefined) detailsUpdate.firstName = firstName;
         if (lastName !== undefined) detailsUpdate.lastName = lastName;
         if (phone !== undefined) detailsUpdate.phone = phone;
+
         if (shippingAddress !== undefined) {
-            // Merge shipping address to allow partial updates if needed, 
-            // but here we expect the full object or nested keys.
-            // For simplicity, we'll replace the full sub-object if provided.
-            detailsUpdate.shippingAddress = shippingAddress;
+            // Use dot notation for nested shipping address fields to support partial updates
+            for (const [key, value] of Object.entries(shippingAddress)) {
+                if (value !== undefined) {
+                    detailsUpdate[`shippingAddress.${key}`] = value;
+                }
+            }
         }
 
         if (Object.keys(detailsUpdate).length > 0) {

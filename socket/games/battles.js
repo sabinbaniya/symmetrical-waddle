@@ -7,9 +7,13 @@ import { v4 as uuidv4 } from "uuid";
 import GameplaysDB from "../../models/Gameplays.js";
 import mongoose from "mongoose";
 import Auth from "../../lib/auth.js";
+import CryptoDepositDB from "../../models/Deposits/Crypto.js";
+import GiftcardDepositDB from "../../models/Deposits/Giftcard.js";
+import UserDB from "../../models/User.js";
 
 const HE = 10 / 100; // House edge - 10%
-const ALLOWED_GAMEMODES = ["1v1v1v1", "1v1v1", "1v1", "2v2"];
+const ALLOWED_GAMEMODES = ["1v1v1v1", "1v1v1", "1v1", "2v2", "2v2v2", "3v3"];
+const BATTLE_MODES = ["normal", "share", "pointRush", "jackpot"];
 const MAX_CASES = 50;
 const MAX_CASES_LIMIT = 2500; // $2500
 const MAX_WIN_USD = 5_000;
@@ -21,6 +25,8 @@ const MAX_PARTICIPANTS_MAP = {
     "1v1v1": 3,
     "1v1": 2,
     "2v2": 4,
+    "2v2v2": 6,
+    "3v3": 6,
 };
 
 export default class Battles extends Game {
@@ -186,6 +192,27 @@ export default class Battles extends Game {
         return cumulativeDistribution.find(item => percentage <= item.cumulative);
     }
 
+    async getUserDeposits(userId, period = "all") {
+        let dateQuery = {};
+        if (period === "day") {
+            dateQuery = { date: { $gte: new Date(Date.now() - 24 * 60 * 60 * 1000) } };
+        } else if (period === "week") {
+            dateQuery = { date: { $gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) } };
+        } else if (period === "month") {
+            dateQuery = { date: { $gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) } };
+        }
+
+        const [cryptoDeposits, giftcardDeposits] = await Promise.all([
+            CryptoDepositDB.find({ userId, ...dateQuery }),
+            GiftcardDepositDB.find({ userId, ...dateQuery }),
+        ]);
+
+        const totalCrypto = cryptoDeposits.reduce((acc, d) => acc + (d.usdAmount || 0), 0);
+        const totalGiftcard = giftcardDeposits.reduce((acc, d) => acc + (d.usdAmount || 0), 0);
+
+        return totalCrypto + totalGiftcard;
+    }
+
     async extractPublicDataFromGame(gameID) {
         const game = await this.getGame(gameID);
         if (!game) return null;
@@ -210,6 +237,17 @@ export default class Battles extends Game {
             prize: game.prize || 0,
             winners: game.winners || [],
             earnings: game.earnings || [],
+            battleMode: game.battleMode || "normal",
+            isFastMode: !!game.isFastMode,
+            isLastChance: !!game.isLastChance,
+            isReversed: !!game.isReversed,
+            isPrivate: !!game.isPrivate,
+            fundingOptions: game.fundingOptions || {
+                percentage: 0,
+                minDeposit: 0,
+                period: "all",
+                onlyAffiliates: false,
+            },
         };
         if (game?.winners?.length) return publicData;
         // Optimize payload for ongoing games
@@ -231,6 +269,10 @@ export default class Battles extends Game {
                 await session.abortTransaction();
                 return { status: false, message: "Invalid gamemode" };
             }
+            if (data.battleMode && !BATTLE_MODES.includes(data.battleMode)) {
+                await session.abortTransaction();
+                return { status: false, message: "Invalid battle mode" };
+            }
             if (gamesCount + 1 > MAX_ROOMS) {
                 await session.abortTransaction();
                 return { status: false, message: "Max rooms reached" };
@@ -240,20 +282,40 @@ export default class Battles extends Game {
                 await session.abortTransaction();
                 return { status: false, message: "You need to select at least one case" };
             }
-            if (data.cases.length > MAX_CASES) {
+
+            const flattenedCases = [];
+            for (const item of data.cases) {
+                if (typeof item === "string") {
+                    flattenedCases.push(item);
+                } else if (item && typeof item === "object" && item.id) {
+                    const qty = Math.max(1, parseInt(item.quantity) || 1);
+                    for (let i = 0; i < qty; i++) {
+                        flattenedCases.push(item.id);
+                    }
+                }
+            }
+
+            if (flattenedCases.length > MAX_CASES) {
                 await session.abortTransaction();
                 return { status: false, message: `Max cases amount is ${MAX_CASES}` };
             }
 
             let totalCaseCost = 0;
-            for (let i = 0; i < data.cases.length; i++) {
-                let case_ = await GetCase(data.cases[i]);
-                if (!case_ || !case_.items?.length) {
-                    case_ = await GetCase(data.cases[i], true);
+            const caseCache = {};
+            for (let i = 0; i < flattenedCases.length; i++) {
+                const caseId = flattenedCases[i];
+                let case_ = caseCache[caseId];
+
+                if (!case_) {
+                    case_ = await GetCase(caseId);
+                    if (!case_ || !case_.items?.length) {
+                        case_ = await GetCase(caseId, true);
+                    }
                     if (!case_ || !case_.items?.length) {
                         await session.abortTransaction();
                         return { status: false, message: "Invalid case" };
                     }
+                    caseCache[caseId] = case_;
                 }
 
                 const casePrice = parseFloat(case_.price);
@@ -292,19 +354,30 @@ export default class Battles extends Game {
                     names[i] = this.bot.username;
                 }
             }
+            let battleMode = data.battleMode || "normal";
+            let isReversed = !!data.isReversed;
+            let isLastChance = !!data.isLastChance;
+
+            // Share mode constraints: no inverse, no last chance
+            if (battleMode === "share") {
+                isReversed = false;
+                isLastChance = false;
+            }
+
             const gameDoc = {
                 gameID,
                 participants,
                 avatars,
                 names,
                 maxParticipants,
-                cases: data.cases,
+                cases: flattenedCases,
                 status: "waiting",
                 isPrivate: !!data.isPrivate,
-                isReversed: !!data.isReversed,
+                isReversed: isReversed,
                 date: Date.now(),
                 round: 1,
                 cost: cost,
+                multiplier: 0,
                 items: [],
                 itemPools: [],
                 forces: [],
@@ -314,6 +387,15 @@ export default class Battles extends Game {
                 lastUpdated: Date.now(),
                 sponsor: Array(maxParticipants).fill(0), // Initialize sponsor array
                 usedBalanceType: user.activeBalanceType,
+                battleMode: battleMode,
+                isFastMode: !!data.isFastMode,
+                isLastChance: isLastChance,
+                fundingOptions: data.fundingOptions || {
+                    percentage: 0,
+                    minDeposit: 0,
+                    period: "all",
+                    onlyAffiliates: false,
+                },
             };
             // Persist to Mongo inside TX for durability
             await GameplaysDB.updateOne({ gameID }, { $set: gameDoc }, { upsert: true, session });
@@ -434,18 +516,56 @@ export default class Battles extends Game {
                 };
             }
 
-            // Determine sponsored spot
+            // Determine sponsored spot or partial funding
             const isSponsored = spot != null && gameDoc?.sponsor && gameDoc?.sponsor?.[spot];
+            const fundingPercentage = gameDoc.fundingOptions?.percentage || 0;
+
             // If not sponsored, charge inside the TX
             if (!isSponsored) {
+                // Check funding requirements if any
+                if (gameDoc.fundingOptions?.onlyAffiliates) {
+                    const creatorId = gameDoc.participants[0];
+                    const creator = await UserDB.findById(creatorId);
+                    if (!creator || user.affiliate?.used !== creator.affiliate?.code) {
+                        await session.abortTransaction();
+                        return { status: false, message: "This battle is only for the creator's affiliates" };
+                    }
+                }
+
+                if (gameDoc.fundingOptions?.minDeposit > 0) {
+                    const userDeposits = await this.getUserDeposits(user._id, gameDoc.fundingOptions.period);
+                    if (userDeposits < gameDoc.fundingOptions.minDeposit) {
+                        await session.abortTransaction();
+                        return {
+                            status: false,
+                            message: `You need at least $${gameDoc.fundingOptions.minDeposit} in deposits (${gameDoc.fundingOptions.period}) to join`,
+                        };
+                    }
+                }
+
                 const gameCost = gameDoc.cost;
+                const creatorShare = (gameCost * fundingPercentage) / 100;
+                const joinerShare = gameCost - creatorShare;
 
                 const userBalance = await Auth.getUserBalance(user._id, null, session);
-                if (userBalance < gameCost) {
+                if (userBalance < joinerShare) {
                     await session.abortTransaction();
                     return { status: false, message: "Insufficient balance" };
                 }
-                await this.addBalance(null, -gameCost, user._id, null, session);
+
+                // Deduct from joiner
+                await this.addBalance(null, -joinerShare, user._id, null, session);
+
+                // Deduct from creator if partially funded
+                if (creatorShare > 0) {
+                    const creatorId = gameDoc.participants[0];
+                    const creatorBalance = await Auth.getUserBalance(creatorId, null, session);
+                    if (creatorBalance < creatorShare) {
+                        await session.abortTransaction();
+                        return { status: false, message: "Creator does not have enough balance to fund your spot" };
+                    }
+                    await this.addBalance(null, -creatorShare, creatorId, null, session);
+                }
             }
             // Resolve target spot
             let targetSpot = spot;
@@ -555,8 +675,17 @@ export default class Battles extends Game {
                 // Refund the sponsor (creator) if the spot was sponsored
                 await this.addBalance(null, gameDoc.cost, gameDoc.participants[0], null, session);
             } else {
-                // Refund the leaving player if the spot was not sponsored
-                await this.addBalance(null, gameDoc.cost, user._id, null, session);
+                // Partial funding refund logic
+                const fundingPercentage = gameDoc.fundingOptions?.percentage || 0;
+                const creatorShare = (gameDoc.cost * fundingPercentage) / 100;
+                const joinerShare = gameDoc.cost - creatorShare;
+
+                // Refund the leaving player their share
+                await this.addBalance(null, joinerShare, user._id, null, session);
+                // Refund the creator their share if any
+                if (creatorShare > 0) {
+                    await this.addBalance(null, creatorShare, gameDoc.participants[0], null, session);
+                }
             }
             await session.commitTransaction();
             session.endSession();
@@ -701,12 +830,18 @@ export default class Battles extends Game {
                             if (!success) {
                                 retry();
                             }
-                        }, SPIN_DURATION);
+                        }, game.isFastMode ? SPIN_DURATION / 2 : SPIN_DURATION);
                     };
                     retry();
                 } else {
                     // Generate a random delay between 7000 and 13000 milliseconds (7 to 13 seconds)
-                    const randomDelay = Math.floor(Math.random() * (13000 - 7000 + 1)) + 7000;
+                    let minDelay = 7000;
+                    let maxDelay = 13000;
+                    if (game.isFastMode) {
+                        minDelay /= 2;
+                        maxDelay /= 2;
+                    }
+                    const randomDelay = Math.floor(Math.random() * (maxDelay - minDelay + 1)) + minDelay;
 
                     setTimeout(() => {
                         this.spin(gameID);
@@ -740,62 +875,171 @@ export default class Battles extends Game {
             game.status = "finished";
             const items = game.items;
             let winners = [];
-            const earnings = [];
+
+            const battleMode = game.battleMode;
+            // Calculate earnings per player
+            const earnings = []; // Total for the whole game
+            const selectionEarnings = []; // Used for winner determination (affected by isLastChance)
+            const roundsForSelection = game.isLastChance ? [items.length - 1] : Array.from({ length: items.length }, (_, i) => i);
 
             for (let i = 0; i < items.length; i++) {
                 for (let j = 0; j < items[i].length; j++) {
                     const earning = parseFloat(items[i][j].price.replace("$", ""));
-                    if (i === 0) {
+                    
+                    // Actual total earnings
+                    if (earnings.length <= j) {
                         earnings.push(earning);
                     } else {
                         earnings[j] += earning;
                     }
-                }
-            }
 
-            // Determine winners
-            if (game.gamemode === "2v2") {
-                const teamA = earnings[0] + earnings[1];
-                const teamB = earnings[2] + earnings[3];
-                if (!game.isReversed) {
-                    if (teamA > teamB) winners = [game.participants[0], game.participants[1]];
-                    else if (teamB > teamA) winners = [game.participants[2], game.participants[3]];
-                    else
-                        winners = [
-                            game.participants[0],
-                            game.participants[1],
-                            game.participants[2],
-                            game.participants[3],
-                        ];
-                } else {
-                    if (teamA < teamB) winners = [game.participants[0], game.participants[1]];
-                    else if (teamB < teamA) winners = [game.participants[2], game.participants[3]];
-                    else
-                        winners = [
-                            game.participants[0],
-                            game.participants[1],
-                            game.participants[2],
-                            game.participants[3],
-                        ];
-                }
-            } else {
-                const most = Math.max(...earnings);
-                const least = Math.min(...earnings);
-
-                if ((game.isReversed && least !== 0) || (!game.isReversed && most !== 0)) {
-                    for (let i = 0; i < earnings.length; i++) {
-                        if (
-                            (game.isReversed && earnings[i] === least) ||
-                            (!game.isReversed && earnings[i] === most)
-                        ) {
-                            winners.push(game.participants[i]);
+                    // Selection earnings
+                    if (roundsForSelection.includes(i)) {
+                        if (selectionEarnings.length <= j) {
+                            selectionEarnings.push(earning);
+                        } else {
+                            selectionEarnings[j] += earning;
                         }
                     }
                 }
             }
 
             let totalEarnings = earnings.reduce((a, b) => a + b, 0);
-            let prizeDollars = totalEarnings / winners.length;
+
+            if (battleMode === "share") {
+                // Combined value split equally among all players
+                winners = game.participants.filter(p => p !== null);
+            } else if (battleMode === "pointRush") {
+                // Player or Team with the most "highest-value pulls" wins
+                const teamBasedModes = ["2v2", "2v2v2", "3v3"];
+                const isTeamBased = teamBasedModes.includes(game.gamemode);
+                let teamSize = 1;
+                if (isTeamBased) {
+                    teamSize = game.gamemode === "3v3" ? 3 : 2;
+                }
+                const numTeams = game.maxParticipants / teamSize;
+                const pointWinners = Array(numTeams).fill(0);
+
+                for (const i of roundsForSelection) {
+                    const roundPrices = items[i].map(item => parseFloat(item.price.replace("$", "")));
+                    const maxPull = Math.max(...roundPrices);
+                    if (maxPull > 0) {
+                        for (let j = 0; j < roundPrices.length; j++) {
+                            if (roundPrices[j] === maxPull) {
+                                const teamIndex = Math.floor(j / teamSize);
+                                pointWinners[teamIndex]++;
+                            }
+                        }
+                    }
+                }
+                const maxPoints = Math.max(...pointWinners);
+                if (maxPoints > 0) {
+                    for (let t = 0; t < numTeams; t++) {
+                        if (pointWinners[t] === maxPoints) {
+                            for (let p = 0; p < teamSize; p++) {
+                                winners.push(game.participants[t * teamSize + p]);
+                            }
+                        }
+                    }
+                }
+            } else if (battleMode === "jackpot") {
+                // Weighted random selection based on selection earnings (by Team or Player)
+                let selectionTotal = selectionEarnings.reduce((a, b) => a + b, 0);
+                if (selectionTotal > 0) {
+                    const teamBasedModes = ["2v2", "2v2v2", "3v3"];
+                    const isTeamBased = teamBasedModes.includes(game.gamemode);
+                    let teamSize = 1;
+                    if (isTeamBased) {
+                        teamSize = game.gamemode === "3v3" ? 3 : 2;
+                    }
+                    const numTeams = game.maxParticipants / teamSize;
+                    const teamSelectionEarnings = Array(numTeams).fill(0);
+                    for (let i = 0; i < selectionEarnings.length; i++) {
+                        const teamIndex = Math.floor(i / teamSize);
+                        teamSelectionEarnings[teamIndex] += selectionEarnings[i] || 0;
+                    }
+
+                    const serverSeed = game._serverSeed;
+                    const publicSeed = game?.pf?.publicSeed;
+                    const hmac = this.pf.computeHmacSha256(serverSeed, `${publicSeed}-jackpot`);
+                    const decimal = this._pfHexToDecimalFraction(hmac);
+                    const winningTicket = decimal * selectionTotal;
+
+                    let cumulative = 0;
+                    for (let t = 0; t < numTeams; t++) {
+                        cumulative += teamSelectionEarnings[t];
+                        if (winningTicket <= cumulative) {
+                            for (let p = 0; p < teamSize; p++) {
+                                winners.push(game.participants[t * teamSize + p]);
+                            }
+                            break;
+                        }
+                    }
+                    if (winners.length === 0) {
+                        // Fallback to last team with selection earnings
+                        for (let t = numTeams - 1; t >= 0; t--) {
+                            if (teamSelectionEarnings[t] > 0) {
+                                for (let p = 0; p < teamSize; p++) {
+                                    winners.push(game.participants[t * teamSize + p]);
+                                }
+                                break;
+                            }
+                        }
+                    }
+                }
+            } else {
+                // Default: Normal mode
+                const teamBasedModes = ["2v2", "2v2v2", "3v3"];
+                if (teamBasedModes.includes(game.gamemode)) {
+                    let teamSize = 2;
+                    if (game.gamemode === "3v3") teamSize = 3;
+
+                    const numTeams = game.maxParticipants / teamSize;
+                    const teamSelectionEarnings = Array(numTeams).fill(0);
+
+                    for (let i = 0; i < selectionEarnings.length; i++) {
+                        const teamIndex = Math.floor(i / teamSize);
+                        teamSelectionEarnings[teamIndex] += selectionEarnings[i] || 0;
+                    }
+
+                    const mostTeam = Math.max(...teamSelectionEarnings);
+                    const leastTeam = Math.min(...teamSelectionEarnings);
+
+                    if (!game.isReversed) {
+                        for (let t = 0; t < numTeams; t++) {
+                            if (teamSelectionEarnings[t] === mostTeam && mostTeam > 0) {
+                                for (let p = 0; p < teamSize; p++) {
+                                    winners.push(game.participants[t * teamSize + p]);
+                                }
+                            }
+                        }
+                    } else {
+                        for (let t = 0; t < numTeams; t++) {
+                            if (teamSelectionEarnings[t] === leastTeam && leastTeam > 0) {
+                                for (let p = 0; p < teamSize; p++) {
+                                    winners.push(game.participants[t * teamSize + p]);
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    const most = Math.max(...selectionEarnings);
+                    const least = Math.min(...selectionEarnings);
+
+                    if ((game.isReversed && least !== 0) || (!game.isReversed && most !== 0)) {
+                        for (let i = 0; i < selectionEarnings.length; i++) {
+                            if (
+                                (game.isReversed && selectionEarnings[i] === least) ||
+                                (!game.isReversed && selectionEarnings[i] === most)
+                            ) {
+                                winners.push(game.participants[i]);
+                            }
+                        }
+                    }
+                }
+            }
+
+            let prizeDollars = winners.length > 0 ? totalEarnings / winners.length : 0;
 
             if (totalEarnings > MAX_WIN_USD) {
                 totalEarnings = MAX_WIN_USD;
@@ -981,7 +1225,9 @@ export default class Battles extends Game {
             ) {
                 setTimeout(async () => {
                     const fresh = await this.getGame(data.gameID);
-                    if (!fresh) return;
+                    if (!fresh || fresh.status !== "waiting") return;
+                    if (fresh.participants.filter(u => u).length !== fresh.maxParticipants) return;
+
                     fresh.status = "in-game";
                     await this.setGame(data.gameID, fresh);
                     await GameplaysDB.updateOne(
@@ -1042,53 +1288,115 @@ export default class Battles extends Game {
             socket.join(data.gameID);
             socket.emit("battles:details", await this.extractPublicDataFromGame(data.gameID));
         });
+        socket.on("battles:leave", async data => {
+            if (!this.rateLimit(socket, "battles:leave")) return;
+            const user = await this.user(socket.cookie);
+            if (!user) return socket.emit("battles:leave", { status: false, message: "Invalid user" });
+            const leaveResponse = await this.leave(user, data.gameID);
+            if (!leaveResponse.status)
+                return socket.emit("battles:leave", {
+                    status: false,
+                    message: leaveResponse.message,
+                });
+
+            // Broadcast updated details
+            this.io
+                .to(data.gameID)
+                .emit("battles:details", await this.extractPublicDataFromGame(data.gameID));
+            return socket.emit("battles:leave", { status: true });
+        });
         socket.on("battles:sponsor", async data => {
             if (!this.rateLimit(socket, "battles:sponsor")) return;
             const user = await this.user(socket.cookie);
             if (!user)
                 return socket.emit("battles:sponsor", { status: false, message: "Invalid user" });
-            const game = await this.getGame(data.gameID);
-            if (!data?.gameID || !game)
-                return socket.emit("battles:sponsor", { status: false, message: "Game not found" });
-            if (data?.spot == null || data.spot < 0 || data.spot >= game.maxParticipants)
+
+            const session = await mongoose.startSession();
+            session.startTransaction();
+            try {
+                const gameDoc = await GameplaysDB.findOne({ gameID: data.gameID }).session(session);
+                if (!gameDoc) {
+                    await session.abortTransaction();
+                    return socket.emit("battles:sponsor", {
+                        status: false,
+                        message: "Game not found",
+                    });
+                }
+                if (data?.spot == null || data.spot < 0 || data.spot >= gameDoc.maxParticipants) {
+                    await session.abortTransaction();
+                    return socket.emit("battles:sponsor", { status: false, message: "Invalid spot" });
+                }
+                // Only creator can sponsor
+                if (gameDoc.participants[0].toString() !== user._id.toString()) {
+                    await session.abortTransaction();
+                    return socket.emit("battles:sponsor", {
+                        status: false,
+                        message: "You are not the creator of this game",
+                    });
+                }
+                // Check if the spot is already sponsored
+                if (gameDoc.sponsor && gameDoc.sponsor[data.spot]) {
+                    await session.abortTransaction();
+                    return socket.emit("battles:sponsor", {
+                        status: false,
+                        message: "This spot is already sponsored",
+                    });
+                }
+                // Check if the sponsor is trying to sponsor their own spot
+                if (gameDoc.participants[0].toString() === gameDoc.participants[data.spot]?.toString()) {
+                    await session.abortTransaction();
+                    return socket.emit("battles:sponsor", {
+                        status: false,
+                        message: "You cannot sponsor your own spot",
+                    });
+                }
+
+                // Balance check + deduct
+                const userBalance = await Auth.getUserBalance(user._id, null, session);
+                if (userBalance < gameDoc.cost) {
+                    await session.abortTransaction();
+                    return socket.emit("battles:sponsor", {
+                        status: false,
+                        message: "Insufficient balance",
+                    });
+                }
+
+                await this.addBalance(null, -gameDoc.cost, user._id, null, session);
+
+                // Initialize sponsor array if needed and set flag
+                const newSponsor = [...(gameDoc.sponsor || Array(gameDoc.maxParticipants).fill(0))];
+                newSponsor[data.spot] = 1;
+
+                // Update DB
+                await GameplaysDB.updateOne(
+                    { gameID: data.gameID },
+                    { $set: { sponsor: newSponsor } },
+                    { session },
+                );
+
+                await session.commitTransaction();
+                session.endSession();
+
+                // Refresh cache
+                const fresh = await GameplaysDB.findOne({ gameID: data.gameID });
+                await this.setGame(data.gameID, fresh);
+
+                // Notify users in the room
+                this.io
+                    .to(data.gameID)
+                    .emit("battles:details", await this.extractPublicDataFromGame(data.gameID));
+                return socket.emit("battles:sponsor", { status: true });
+            } catch (e) {
+                console.log("Battles:sponsor error", e);
+                try {
+                    await session.abortTransaction();
+                } catch {}
+                session.endSession();
                 return socket.emit("battles:sponsor", {
                     status: false,
-                    message: "Invalid spot",
-                });
-            // Only creator can sponsor
-            if (game.participants[0].toString() !== user._id.toString())
-                return socket.emit("battles:sponsor", {
-                    status: false,
-                    message: "You are not the creator of this game",
-                });
-            // Check if the spot is already sponsored
-            if (game.sponsor && game.sponsor[data.spot]) {
-                return socket.emit("battles:sponsor", {
-                    status: false,
-                    message: "This spot is already sponsored",
+                    message: "Something went wrong!",
                 });
             }
-            // Check if the sponsor is trying to sponsor their own spot
-            if (game.participants[0].toString() === game.participants[data.spot]?.toString()) {
-                return socket.emit("battles:sponsor", {
-                    status: false,
-                    message: "You cannot sponsor your own spot",
-                });
-            }
-            // Reduce balance
-            await this.addBalance(null, -game.cost, user._id);
-            // Persist sponsor flag
-            await this.setGame(data.gameID, game);
-            await GameplaysDB.updateOne(
-                { gameID: data.gameID },
-                { $set: { sponsor: game.sponsor } },
-                { upsert: true },
-            );
-            // Notify users in the room
-            this.io
-                .to(data.gameID)
-                .emit("battles:details", await this.extractPublicDataFromGame(data.gameID));
-            socket.emit("battles:sponsor", { status: true });
         });
     }
 }

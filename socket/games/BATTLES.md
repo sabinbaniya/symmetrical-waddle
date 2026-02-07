@@ -1,87 +1,135 @@
 # Case Battles Socket Documentation
 
-Case Battles involves users opening cases against each other. The user with the highest total item value wins the entire pot (in standard 1v1 mode).
+### Client -> Server Events
 
-## Events
-
-### Client -> Server
-
-#### `battles:create`
-
+**`battles:create`**
 Creates a new battle lobby.
+* **Payload**:
+  ```json
+  {
+      "gamemode": "1v1", // "1v1", "1v1v1", "1v1v1v1", "2v2", "2v2v2", "3v3"
+      "battleMode": "normal", // "normal", "share", "pointRush", "jackpot"
+      "cases": [
+          { "id": "case-id-1", "quantity": 2 },
+          "case-id-2" // simplified ID also works
+      ],
+      "isBot": false, 
+      "isPrivate": false,
+      "isReversed": false, // Inverse Mode
+      "isFastMode": false,
+      "isLastChance": false,
+      "fundingOptions": {
+          "percentage": 50, // 0-100% (Partial Slot Funding)
+          "minDeposit": 10,
+          "period": "week", // "all", "day", "week", "month"
+          "onlyAffiliates": true
+      }
+  }
+  ```
+* **Response**: `battles:create` with `{ status: true, gameID: "uuid" }`.
 
-- **Payload**:
-    ```json
-    {
-        "gamemode": "1v1", // "1v1", "1v1v1", "1v1v1v1", "2v2"
-        "cases": ["case-id-1", "case-id-2"],
-        "isBot": false, // true to fill empty spots with bots
-        "isPrivate": false,
-        "isReversed": false // If true, lowest total wins
-    }
-    ```
-- **Response (Emits Back)**: `battles:create` event with { status: true, gameID: "uuid-string" }, and user is joined to that socket room with roomId as the gameId.
-
-#### `battles:join`
-
+**`battles:join`**
 Joins an existing battle lobby.
+* **Payload**:
+  ```json
+  {
+      "gameID": "uuid",
+      "spot": 1 // Optional: index of the seat (0 to max-1)
+  }
+  ```
 
-- **Payload**:
-    ```json
-    {
-        "gameID": "uuid-string",
-        "spot": 1 // Optional: specific spot index
-    }
-    ```
+**`battles:leave`**
+Leaves the waiting lobby and refunds the user.
+* **Payload**: `{ "gameID": "uuid" }`
 
-### Server -> Client
+**`battles:sponsor`**
+Creators can sponsor (pay for) someone else's spot.
+* **Payload**: `{ "gameID": "uuid", "spot": 1 }`
 
-#### `battles:pf`
+**`battles:details`**
+Request the full state of a specific game.
+* **Payload**: `{ "gameID": "uuid" }`
 
-Emitted when the game starts, sharing Provably Fair data.
-
-- **Payload**:
-    ```json
-    {
-        "serverSeedCommitment": "sha256-hash",
-        "publicSeed": "block-id",
-        "round": 1,
-        "gameID": "uuid-string"
-    }
-    ```
-
-#### `battles:spin`
-
-Emitted for every round of opening cases.
-
-- **Payload**:
-    ```json
-    {
-      "id": "game-id",
-      "round": 2,
-      "itemPools": [[...], [...]], // Visual items for the spinner
-      "forces": [[...], [...]],    // The index where the spinner stops
-      "items": [[...], [...]],     // The actual winning items for this round
-      "status": "in-game",
-      // ... other game state data
-    }
-    ```
+**`battles:games`**
+Fetch the list of all active/waiting battles.
+* **Payload**: `{}`
 
 ---
 
-## Game Logic details
+### Server -> Client Events
 
-1.  **Creation**: Validates cases, costs, and user balance.
-2.  **Bots**: If `isBot` is true, the game automatically fills with bots and starts after creation.
-3.  **Provably Fair**:
-    - Generates a `serverSeed`.
-    - Uses a `publicSeed`
-    - Calculates `ticket` for each slot to determine the item.
-4.  **Spinning**:
-    - The server calculates the result for a round.
-    - Emits `battles:spin` with the target item (via `forces` index) and the visual pool.
-    - Waits for client animation (approx 4.3s) before processing the next round.
-5.  **Result**:
-    - Once all rounds are done, the server calculates the earnings.
-    - Determines winner based on gamemode (Standard vs Reversed, Team 2v2).
-    - Distributes winnings.
+**`battles:details`**
+Emitted when someone joins, leaves, or a user explicitly requests details.
+* **Payload**:
+  ```json
+  {
+    "id": "uuid",
+    "status": "waiting", // "waiting", "in-game", "finished"
+    "participants": ["user-id", null, "BOT"],
+    "avatars": ["url", null, "url"],
+    "names": ["Alice", null, "Bot Alpha"],
+    "cases": ["id1", "id1", "id2"], // Flattened list
+    "cost": 15.50,
+    "round": 1,
+    "battleMode": "normal",
+    "isFastMode": false,
+    "isLastChance": false,
+    "isReversed": false,
+    "isPrivate": false,
+    "fundingOptions": { "percentage": 0, "minDeposit": 0, ... },
+    "sponsor": [0, 1, 0] // 1 if the spot is sponsored/paid for by creator
+  }
+  ```
+
+**`battles:pf`**
+Emitted when the game starts, sharing the Provably Fair commitment.
+* **Payload**: `{ "serverSeedCommitment": "hash", "publicSeed": "str", "round": 1, "gameID": "uuid" }`
+
+**`battles:spin`**
+Emitted for every round. Contains the items unboxed by each participant.
+* **Payload**:
+  ```json
+  {
+    "id": "uuid",
+    "round": 2,
+    "itemPools": [[...], [...]], // Aesthetic items for the roulette
+    "forces": [15, 20],        // The static winning index in the pool
+    "items": [
+        { "name": "Skin A", "price": "$5.00", "image": "..." },
+        { "name": "Skin B", "price": "$0.50", "image": "..." }
+    ]
+  }
+  ```
+
+**`battles:result`**
+Emitted when the game finishes.
+* **Payload**:
+  ```json
+  {
+    "gameID": "uuid",
+    "winners": ["userId1", "userId2"], // Can be multiple in Team/Share/Draws
+    "prize": 25.50, // Total dollars
+    "serverSeed": "revealed-seed",
+    "publicSeed": "block-id"
+  }
+  ```
+
+**`battles:proof`**
+Explicit PF reveal event sent alongside the result.
+* **Payload**: `{ "serverSeed": "...", "publicSeed": "...", "gameID": "..." }`
+
+---
+
+### Key Game Concepts
+
+1. **Battle Modes**:
+   - **Normal**: Highest total value wins.
+   - **Share**: Total pot split equally among all players.
+   - **Point Rush**: Round-by-round points based on highest pull.
+   - **Jackpot**: Weighted raffle based on unboxed value.
+2. **Options**:
+   - **Inverse**: Lowest value wins. (Disabled in Share Mode)
+   - **Last Chance**: Only the final round counts for selection. (Disabled in Share Mode)
+   - **Fast Mode**: Spins and delays are 50% faster.
+3. **Teams**:
+   - Supported in all modes. Points and values are aggregated per team (e.g., 2v2v2 = 3 teams).

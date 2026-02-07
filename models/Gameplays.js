@@ -15,6 +15,10 @@ const gameplaysSchema = new Schema(
             type: [String],
             default: [],
         },
+        sponsor: {
+            type: [Number],
+            default: [],
+        },
         maxParticipants: {
             type: Number,
             required: true,
@@ -49,7 +53,7 @@ const gameplaysSchema = new Schema(
         },
         multiplier: {
             type: Number,
-            required: true,
+            required: false,
         },
         date: {
             type: Number,
@@ -98,6 +102,37 @@ const gameplaysSchema = new Schema(
             type: String,
             required: true,
             enum: ["balance", "sweepstakeBalance"],
+        },
+        battleMode: {
+            type: String,
+            enum: ["normal", "share", "pointRush", "jackpot"],
+            default: "normal",
+        },
+        isFastMode: {
+            type: Boolean,
+            default: false,
+        },
+        isLastChance: {
+            type: Boolean,
+            default: false,
+        },
+        winners: {
+            type: [Schema.Types.Mixed],
+            default: [],
+        },
+        prize: {
+            type: Number,
+            default: 0,
+        },
+        earnings: {
+            type: [Number],
+            default: [],
+        },
+        fundingOptions: {
+            percentage: { type: Number, default: 0 },
+            minDeposit: { type: Number, default: 0 },
+            period: { type: String, enum: ["all", "day", "week", "month"], default: "all" },
+            onlyAffiliates: { type: Boolean, default: false },
         },
     },
     {

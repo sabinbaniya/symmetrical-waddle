@@ -2,6 +2,8 @@ import express from "express";
 import Auth from "../lib/auth.js";
 import userDB from "../models/User.js";
 import { z } from "zod";
+import { generateSecret, verifySync, generateURI } from "otplib";
+import QRCode from "qrcode";
 
 const router = express.Router();
 
@@ -335,6 +337,114 @@ router.put("/details", requireAuth, async (req, res) => {
         return res.json({ success: true });
     } catch (error) {
         console.error("Update profile details error:", error);
+        return res.status(500).json({ error: "Internal server error" });
+    }
+});
+
+// GET /profile/2fa/status - Get 2FA status
+router.get("/2fa/status", requireAuth, async (req, res) => {
+    try {
+        const user = await userDB.findById(req.user._id).select("twoFactorEnabled");
+        return res.json({
+            success: true,
+            enabled: user.twoFactorEnabled || false,
+        });
+    } catch (error) {
+        console.error("2FA status error:", error);
+        return res.status(500).json({ error: "Internal server error" });
+    }
+});
+
+// POST /profile/2fa/setup - Generate 2FA secret and QR code
+router.post("/2fa/setup", requireAuth, async (req, res) => {
+    try {
+        const user = await userDB.findById(req.user._id).select("+twoFactorEnabled");
+
+        if (user.twoFactorEnabled) {
+            return res.status(400).json({ error: "2FA is already enabled" });
+        }
+
+        const secret = generateSecret();
+        const otpauth = generateURI({ label: user.username, issuer: "HeyDrop", secret });
+        const qrCode = await QRCode.toDataURL(otpauth);
+
+        // Store temp secret
+        await userDB.updateOne({ _id: user._id }, { twoFactorTempSecret: secret });
+
+        return res.json({
+            success: true,
+            secret,
+            qrCode,
+        });
+    } catch (error) {
+        console.error("2FA setup error:", error);
+        return res.status(500).json({ error: "Internal server error" });
+    }
+});
+
+// POST /profile/2fa/enable - Enable 2FA with verification code
+router.post("/2fa/enable", requireAuth, async (req, res) => {
+    try {
+        const { code } = req.body;
+        if (!code) {
+            return res.status(400).json({ error: "Verification code is required" });
+        }
+
+        const user = await userDB.findById(req.user._id).select("+twoFactorTempSecret");
+        if (!user.twoFactorTempSecret) {
+            return res.status(400).json({ error: "2FA setup not initiated" });
+        }
+
+        const isValid = verifySync({ token: code, secret: user.twoFactorTempSecret }).valid;
+        if (!isValid) {
+            return res.status(400).json({ error: "Invalid verification code" });
+        }
+
+        await userDB.updateOne(
+            { _id: user._id },
+            {
+                twoFactorEnabled: true,
+                twoFactorSecret: user.twoFactorTempSecret,
+                $unset: { twoFactorTempSecret: 1 },
+            },
+        );
+
+        return res.json({ success: true, message: "2FA enabled successfully" });
+    } catch (error) {
+        console.error("2FA enable error:", error);
+        return res.status(500).json({ error: "Internal server error" });
+    }
+});
+
+// POST /profile/2fa/disable - Disable 2FA
+router.post("/2fa/disable", requireAuth, async (req, res) => {
+    try {
+        const { code } = req.body;
+        if (!code) {
+            return res.status(400).json({ error: "Verification code is required" });
+        }
+
+        const user = await userDB.findById(req.user._id).select("+twoFactorSecret +twoFactorEnabled");
+        if (!user.twoFactorEnabled) {
+            return res.status(400).json({ error: "2FA is not enabled" });
+        }
+
+        const isValid = verifySync({ token: code, secret: user.twoFactorSecret }).valid;
+        if (!isValid) {
+            return res.status(400).json({ error: "Invalid verification code" });
+        }
+
+        await userDB.updateOne(
+            { _id: user._id },
+            {
+                twoFactorEnabled: false,
+                $unset: { twoFactorSecret: 1 },
+            },
+        );
+
+        return res.json({ success: true, message: "2FA disabled successfully" });
+    } catch (error) {
+        console.error("2FA disable error:", error);
         return res.status(500).json({ error: "Internal server error" });
     }
 });

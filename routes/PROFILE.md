@@ -1,24 +1,18 @@
 # Profile API Documentation
 
-## Overview
-
-This document provides API documentation for the profile routes implemented in the `lucky-be` backend. These routes handle user profile management, notifications, vault operations, and user settings.
-
 **Base Path**: `/profile`
 
-**Authentication**: Most endpoints require authentication via Passport.js session. The user must be logged in to access protected endpoints.
+***
 
----
+#### Endpoints
 
-## Endpoints
-
-### 1. GET `/profile/notifications`
+**1. GET `/profile/notifications`**
 
 Get all notifications for the authenticated user.
 
 **Authentication**: Required
 
-#### Response
+**Response**
 
 Returns an array of notification objects.
 
@@ -36,7 +30,7 @@ Array<{
 [
     {
         "title": "Welcome",
-        "message": "Welcome to Buzzed Casino!",
+        "message": "Welcome to Casino!",
         "date": 1703001234567
     }
 ]
@@ -44,19 +38,19 @@ Array<{
 
 **Error Responses**:
 
-- `401 Unauthorized`: User is not authenticated
-- `400 Bad Request`: User not found
-- `500 Internal Server Error`: Server error
+* `401 Unauthorized`: User is not authenticated
+* `400 Bad Request`: User not found
+* `500 Internal Server Error`: Server error
 
----
+***
 
-### 2. DELETE `/profile/notifications`
+**2. DELETE `/profile/notifications`**
 
 Clear all notifications for the authenticated user.
 
 **Authentication**: Required
 
-#### Response
+**Response**
 
 **Success Response (200)**:
 
@@ -68,23 +62,23 @@ Clear all notifications for the authenticated user.
 
 **Error Responses**:
 
-- `401 Unauthorized`: User is not authenticated
-- `400 Bad Request`: User not found
-- `500 Internal Server Error`: Server error
+* `401 Unauthorized`: User is not authenticated
+* `400 Bad Request`: User not found
+* `500 Internal Server Error`: Server error
 
----
+***
 
-### 3. GET `/profile/user/:id`
+**3. GET `/profile/user/:id`**
 
 Get public user data by Steam ID.
 
 **Authentication**: Not required (public endpoint)
 
-#### Parameters
+**Parameters**
 
-- `id` (path parameter): Steam ID of the user
+* `id` (path parameter): Steam ID of the user
 
-#### Response
+**Response**
 
 **Success Response (200)**:
 
@@ -104,7 +98,7 @@ Get public user data by Steam ID.
 
 **Error Responses**:
 
-- `404 Not Found`: User not found
+* `404 Not Found`: User not found
 
 ```json
 {
@@ -113,17 +107,17 @@ Get public user data by Steam ID.
 }
 ```
 
-- `500 Internal Server Error`: Server error
+* `500 Internal Server Error`: Server error
 
----
+***
 
-### 4. POST `/profile/vault/lock`
+**4. POST `/profile/vault/lock`**
 
 Lock coins in the vault with a deadline. This moves coins from the user's balance to their vault balance and sets a lock deadline.
 
 **Authentication**: Required
 
-#### Request Body
+**Request Body**
 
 ```json
 {
@@ -132,10 +126,10 @@ Lock coins in the vault with a deadline. This moves coins from the user's balanc
 }
 ```
 
-- `amount` (number, required): Amount of coins to lock (must be positive)
-- `deadline` (number, required): Unix timestamp in milliseconds when the vault will unlock (must be in the future)
+* `amount` (number, required): Amount of coins to lock (must be positive)
+* `deadline` (number, required): Unix timestamp in milliseconds when the vault will unlock (must be in the future)
 
-#### Response
+**Response**
 
 **Success Response (200)**:
 
@@ -147,8 +141,8 @@ Lock coins in the vault with a deadline. This moves coins from the user's balanc
 
 **Error Responses**:
 
-- `401 Unauthorized`: User is not authenticated
-- `400 Bad Request`: Invalid parameters
+* `401 Unauthorized`: User is not authenticated
+* `400 Bad Request`: Invalid parameters
 
 ```json
 {
@@ -164,21 +158,21 @@ Lock coins in the vault with a deadline. This moves coins from the user's balanc
 }
 ```
 
-- `500 Internal Server Error`: Server error
+* `500 Internal Server Error`: Server error
 
----
+***
 
-### 5. POST `/profile/vault/unlock`
+**5. POST `/profile/vault/unlock`**
 
 Unlock coins from the vault. This moves coins from the vault balance back to the user's regular balance.
 
 **Authentication**: Required
 
-#### Request Body
+**Request Body**
 
 No body required.
 
-#### Response
+**Response**
 
 **Success Response (200)**:
 
@@ -190,8 +184,8 @@ No body required.
 
 **Error Responses**:
 
-- `401 Unauthorized`: User is not authenticated
-- `400 Bad Request`: Cannot unlock vault
+* `401 Unauthorized`: User is not authenticated
+* `400 Bad Request`: Cannot unlock vault
 
 ```json
 {
@@ -207,17 +201,17 @@ No body required.
 }
 ```
 
-- `500 Internal Server Error`: Server error
+* `500 Internal Server Error`: Server error
 
----
+***
 
-### 6. PUT `/profile/trade-url`
+**6. PUT `/profile/trade-url`**
 
 Set or update the user's Steam trade URL.
 
 **Authentication**: Required
 
-#### Request Body
+**Request Body**
 
 ```json
 {
@@ -225,9 +219,9 @@ Set or update the user's Steam trade URL.
 }
 ```
 
-- `url` (string, required): Steam trade URL (must start with `https://steamcommunity.com/tradeoffer/new/?partner`)
+* `url` (string, required): Steam trade URL (must start with `https://steamcommunity.com/tradeoffer/new/?partner`)
 
-#### Response
+**Response**
 
 **Success Response (200)**:
 
@@ -239,8 +233,8 @@ Set or update the user's Steam trade URL.
 
 **Error Responses**:
 
-- `401 Unauthorized`: User is not authenticated
-- `400 Bad Request`: Invalid trade URL
+* `401 Unauthorized`: User is not authenticated
+* `400 Bad Request`: Invalid trade URL
 
 ```json
 {
@@ -252,11 +246,11 @@ Set or update the user's Steam trade URL.
 }
 ```
 
-- `500 Internal Server Error`: Server error
+* `500 Internal Server Error`: Server error
 
----
+***
 
-### 7. PUT `/profile/email`
+**7. PUT `/profile/email`**
 
 Update the user's email address.
 
@@ -264,7 +258,7 @@ Update the user's email address.
 
 **Status**: Not implemented (returns 501)
 
-#### Request Body
+**Request Body**
 
 ```json
 {
@@ -272,7 +266,7 @@ Update the user's email address.
 }
 ```
 
-#### Response
+**Response**
 
 **Error Response (501)**:
 
@@ -282,20 +276,21 @@ Update the user's email address.
 }
 ```
 
----
+***
 
-### 8. PUT `/profile/client-seed`
+**8. PUT `/profile/client-seed`**
 
 Update the user's Provably Fair client seed.
 
 **Authentication**: Required
 
-#### Validation Constraints:
-- **Min Length**: 4 characters
-- **Max Length**: 64 characters
-- **Allowed**: Alphanumeric, `-`, and `_`
+**Validation Constraints:**
 
-#### Request Body
+* **Min Length**: 4 characters
+* **Max Length**: 64 characters
+* **Allowed**: Alphanumeric, `-`, and `_`
+
+**Request Body**
 
 ```json
 {
@@ -303,7 +298,7 @@ Update the user's Provably Fair client seed.
 }
 ```
 
-#### Response
+**Response**
 
 **Success Response (200)**:
 
@@ -314,18 +309,19 @@ Update the user's Provably Fair client seed.
 ```
 
 **Error Responses**:
-- `401 Unauthorized`
-- `400 Bad Request`: Validation error
 
----
+* `401 Unauthorized`
+* `400 Bad Request`: Validation error
 
-### 9. GET `/profile/details`
+***
 
-Get extended profile information including personal info and shipping address.
+**9. GET `/profile/details`**
+
+Get extended profile information, including personal info and shipping address.
 
 **Authentication**: Required
 
-#### Response
+**Response**
 
 **Success Response (200)**:
 
@@ -349,15 +345,15 @@ Get extended profile information including personal info and shipping address.
 }
 ```
 
----
+***
 
-### 10. PUT `/profile/details`
+**10. PUT `/profile/details`**
 
 Update profile details and shipping address. All fields are optional.
 
 **Authentication**: Required
 
-#### Request Body
+**Request Body**
 
 ```json
 {
@@ -373,11 +369,12 @@ Update profile details and shipping address. All fields are optional.
 }
 ```
 
-#### Logic:
-- **Username**: If provided and different from current, it checks for uniqueness.
-- **Partial Updates**: You can provide only the fields you wish to change.
+**Logic:**
 
-#### Response
+* **Username**: If provided and different from the current one, it checks for uniqueness.
+* **Partial Updates**: You can provide only the fields you wish to change.
+
+**Response**
 
 **Success Response (200)**:
 
@@ -387,13 +384,170 @@ Update profile details and shipping address. All fields are optional.
 }
 ```
 
----
+***
 
-## Usage Examples
+**11. GET `/profile/2fa/status`**
 
-### Frontend Integration
+Check if 2FA is enabled for the authenticated user.
 
-#### Get Notifications
+**Authentication**: Required
+
+**Response**
+
+**Success Response (200)**:
+
+```json
+{
+    "success": true,
+    "enabled": true
+}
+```
+
+***
+
+**12. POST `/profile/2fa/setup`**
+
+Initiate 2FA setup. Generates a secret and a QR code.
+
+**Authentication**: Required
+
+**Response**
+
+**Success Response (200)**:
+
+```json
+{
+    "success": true,
+    "secret": "JBSWY3DPEHPK3PXP",
+    "qrCode": "data:image/png;base64,..."
+}
+```
+
+***
+
+**13. POST `/profile/2fa/enable`**
+
+Verify and enable 2FA using a code from the authenticator app.
+
+**Authentication**: Required
+
+**Request Body**
+
+```json
+{
+    "code": "123456"
+}
+```
+
+**Response**
+
+**Success Response (200)**:
+
+```json
+{
+    "success": true,
+    "message": "2FA enabled successfully"
+}
+```
+
+**Error Responses**:
+
+* `400 Bad Request`: Invalid code or setup not initiated.
+
+***
+
+**14. POST `/profile/2fa/disable`**
+
+Disable 2FA after verifying a code.
+
+**Authentication**: Required
+
+**Request Body**
+
+```json
+{
+    "code": "123456"
+}
+```
+
+**Response**
+
+**Success Response (200)**:
+
+```json
+{
+    "success": true,
+    "message": "2FA disabled successfully"
+}
+```
+
+**Error Responses**:
+
+* `400 Bad Request`: Invalid code or 2FA not enabled.
+
+***
+
+#### 2FA Login Flow
+
+The login flow changes when 2FA is enabled for a user. It becomes a two-step process to ensure security.
+
+**Step 1: Initial Login**
+
+**A. Email/Password Login**
+
+Call `POST /auth/login` with email and password.
+
+If 2FA is enabled, the server returns:
+
+```json
+{
+    "twoFactorRequired": true,
+    "preAuthToken": "eyJhbGciOi..."
+}
+```
+
+* `preAuthToken`: A short-lived (5 min) JWT token required for the second step.
+
+**B. OAuth Login (Steam, Google, Discord)**
+
+If a user with 2FA enabled logs in via an OAuth provider, the backend will redirect them to the home page with query parameters:
+
+`${MAIN_URL}?required2fa=true&token=${preAuthToken}`
+
+The frontend should detect `required2fa=true`, extract the `token`, and proceed to Step 2.
+
+**Step 2: 2FA Verification**
+
+Call `POST /auth/login/2fa` with the `preAuthToken` and the 6-digit TOTP code.
+
+**Request Body**
+
+```json
+{
+    "preAuthToken": "eyJhbGciOi...",
+    "code": "123456"
+}
+```
+
+**Response**
+
+**Success Response (200)**:
+
+Returns the user object and sets the session cookie, completing the login.
+
+```json
+{
+    "user": { ... }
+}
+```
+
+***
+
+#### Usage Examples
+
+**Frontend Integration**
+
+**Get Notifications**
 
 ```javascript
 const getNotifications = async () => {
@@ -416,7 +570,7 @@ const getNotifications = async () => {
 };
 ```
 
-#### Clear Notifications
+**Clear Notifications**
 
 ```javascript
 const clearNotifications = async () => {
@@ -439,7 +593,7 @@ const clearNotifications = async () => {
 };
 ```
 
-#### Get Public User
+**Get Public User**
 
 ```javascript
 const getPublicUser = async steamId => {
@@ -461,7 +615,7 @@ const getPublicUser = async steamId => {
 };
 ```
 
-#### Lock Coins in Vault
+**Lock Coins in Vault**
 
 ```javascript
 const lockCoins = async (amount, deadline) => {
@@ -489,7 +643,7 @@ const lockCoins = async (amount, deadline) => {
 };
 ```
 
-#### Unlock Coins from Vault
+**Unlock Coins from Vault**
 
 ```javascript
 const unlockCoins = async () => {
@@ -513,7 +667,7 @@ const unlockCoins = async () => {
 };
 ```
 
-#### Set Trade URL
+**Set Trade URL**
 
 ```javascript
 const setTradeURL = async url => {
@@ -541,7 +695,7 @@ const setTradeURL = async url => {
 };
 ```
 
-#### Update Client Seed
+**Update Client Seed**
 
 ```javascript
 const updateClientSeed = async (clientSeed) => {
@@ -554,7 +708,7 @@ const updateClientSeed = async (clientSeed) => {
 };
 ```
 
-#### Update Profile Details
+**Update Profile Details**
 
 ```javascript
 const updateDetails = async (details) => {
@@ -567,44 +721,58 @@ const updateDetails = async (details) => {
 };
 ```
 
----
+**2FA Setup Flow**
 
-## Authentication
+```javascript
+// 1. Get Setup Info
+const setup2FA = async () => {
+    const res = await fetch("/profile/2fa/setup", { method: "POST", credentials: "include" });
+    const { qrCode, secret } = await res.json();
+    // Display qrCode and allow user to copy secret
+};
 
-All protected endpoints require the user to be authenticated via Passport.js session. The session is maintained using cookies, so make sure to:
-
-1. Include credentials in fetch requests: `credentials: 'include'`
-2. Ensure CORS is properly configured to allow credentials
-3. Use HTTPS in production for secure cookie transmission
-
-The authentication middleware checks `req.isAuthenticated()` and returns a 401 error if the user is not logged in.
-
----
-
-## Error Handling
-
-All endpoints follow a consistent error response format:
-
-```json
-{
-    "error": "Error message description"
-}
+// 2. Enable 2FA
+const enable2FA = async (code) => {
+    const res = await fetch("/profile/2fa/enable", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ code })
+    });
+    return await res.json();
+};
 ```
 
-Common HTTP status codes:
+**2FA Login Flow**
 
-- `200 OK`: Successful request
-- `400 Bad Request`: Invalid input or business logic error
-- `401 Unauthorized`: User not authenticated
-- `404 Not Found`: Resource not found
-- `500 Internal Server Error`: Server-side error
-- `501 Not Implemented`: Feature not yet available
+```javascript
+const login = async (email, password) => {
+    const res = await fetch("/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password })
+    });
+    const data = await res.json();
 
----
+    if (data.twoFactorRequired) {
+        // Show 2FA input field
+        const code = prompt("Enter 2FA code:"); // Simplified for example
+        const res2 = await fetch("/auth/login/2fa", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ preAuthToken: data.preAuthToken, code })
+        });
+        return await res2.json();
+    }
 
-## Notes
+    return data;
+};
+```
 
-- The vault feature allows users to lock their coins for a specified period, preventing them from being used until the deadline passes.
-- The email update feature is currently disabled and will return a 501 status code.
-- All monetary amounts are in the platform's base currency units.
-- Timestamps are in Unix milliseconds format.
+***
+
+#### Notes
+
+* The vault feature allows users to lock their coins for a specified period, preventing them from being used until the deadline passes.
+* The email update feature is currently disabled and will return a 501 status code.
+* Timestamps are in Unix milliseconds format.

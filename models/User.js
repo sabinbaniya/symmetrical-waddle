@@ -140,6 +140,18 @@ const userSchema = new Schema({
         required: false,
         default: "",
     },
+    twoFactorSecret: {
+        type: String,
+        select: false,
+    },
+    twoFactorEnabled: {
+        type: Boolean,
+        default: false,
+    },
+    twoFactorTempSecret: {
+        type: String,
+        select: false,
+    },
 });
 
 export default models?.users || model("users", userSchema);

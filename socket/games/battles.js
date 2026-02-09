@@ -213,8 +213,8 @@ export default class Battles extends Game {
         return totalCrypto + totalGiftcard;
     }
 
-    async extractPublicDataFromGame(gameID) {
-        const game = await this.getGame(gameID);
+    async extractPublicDataFromGame(gameID, gameDoc = null) {
+        const game = gameDoc || (await this.getGame(gameID));
         if (!game) return null;
         const publicData = {
             id: gameID,
@@ -1395,6 +1395,107 @@ export default class Battles extends Game {
                 return socket.emit("battles:sponsor", {
                     status: false,
                     message: "Something went wrong!",
+                });
+
+            }
+        });
+
+        socket.on("battles:list", async (data = {}) => {
+            if (!this.rateLimit(socket, "battles:list")) return;
+
+            try {
+                const page = Math.max(1, parseInt(data.page) || 1);
+                const limit = Math.min(20, Math.max(1, parseInt(data.limit) || 10));
+                const skip = (page - 1) * limit;
+
+                const query = { gameID: { $exists: true } };
+
+                // Status filter
+                if (data.status && ["waiting", "in-game", "finished"].includes(data.status)) {
+                    query.status = data.status;
+                } else if (data.status === "active") {
+                    query.status = { $in: ["waiting", "in-game"] };
+                }
+
+                // Gamemode filter
+                if (data.gamemode && ALLOWED_GAMEMODES.includes(data.gamemode)) {
+                    query.gamemode = data.gamemode;
+                }
+
+                // Battle Mode filter
+                if (data.battleMode && BATTLE_MODES.includes(data.battleMode)) {
+                    query.battleMode = data.battleMode;
+                }
+
+                // User filter (my games)
+                if (data.user) {
+                    const user = await this.user(socket.cookie);
+                    if (user) {
+                        query.participants = user._id;
+                    }
+                }
+
+                // Private games logic
+                if (!data.includePrivate) {
+                   // By default, query public games only
+                   // OR if user is involved, show their private games too?
+                   // data.includePrivate is not a standard filter, usually we handle this by user context
+                   // If fetching "all", show public only.
+                   // If fetching "my games", show everything.
+                   // Let's implement robust visibility logic:
+                   if(data.user) {
+                       // If filtering by user, we can show private games if the requester is that user
+                       // But here we rely on socket.cookie to verify the user
+                       // So if `data.user` is true, we filter by the authenticated user's ID
+                       // And we can show private games.
+                   } else {
+                       // Public list: only public games
+                       query.isPrivate = false;
+                   }
+                }
+                
+                // If user is logged in, filter by balance type
+                const user = await this.user(socket.cookie);
+                if (user) {
+                     query.usedBalanceType = user.activeBalanceType;
+                } else {
+                    // Default to 'balance' (real money) if not logged in? Or show all?
+                    // Typically standard sites show real money games to guests.
+                    query.usedBalanceType = "balance";
+                }
+
+
+                // Execute query
+                const [games, total] = await Promise.all([
+                    GameplaysDB.find(query)
+                        .sort({ [data.sort === "asc" ? "date" : "date"]: data.sort === "asc" ? 1 : -1 }) // Default desc
+                        .skip(skip)
+                        .limit(limit)
+                        .lean(), // Use lean for performance
+                    GameplaysDB.countDocuments(query)
+                ]);
+
+                // Map results using the refactored extractor
+                const formattedGames = await Promise.all(
+                    games.map(game => this.extractPublicDataFromGame(game.gameID, game))
+                );
+
+                return socket.emit("battles:list", {
+                    status: true,
+                    data: formattedGames,
+                    pagination: {
+                        page,
+                        limit,
+                        total,
+                        pages: Math.ceil(total / limit)
+                    }
+                });
+
+            } catch (error) {
+                console.error("[Battles] list error", error);
+                return socket.emit("battles:list", {
+                    status: false,
+                    message: "Failed to fetch battles"
                 });
             }
         });

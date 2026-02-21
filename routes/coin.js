@@ -55,6 +55,50 @@ let priceCache = {
 
 const CACHE_DURATION = 1000 * 60 * 60; // 1 hour
 
+// // GET /coin/prices
+// router.get("/prices", async (req, res) => {
+//     try {
+//         const now = Date.now();
+//         if (priceCache.data && now - priceCache.lastUpdated < CACHE_DURATION) {
+//             return res.json(priceCache.data);
+//         }
+
+//         const url = `https://api.coingecko.com/api/v3/simple/price?ids=bitcoin%2Cethereum%2Clitecoin&vs_currencies=usd`;
+//         const response = await axios.get(url, {
+//             headers: {
+//                 accept: "application/json",
+//                 "x-cg-demo-api-key": process.env.COINGECKO_API_KEY,
+//             },
+//         });
+//         const prices = response.data;
+
+//         if (!prices?.bitcoin) {
+//             return res.status(500).json({ error: "Failed to fetch prices" });
+//         }
+
+//         const formattedPrices = {
+//             Bitcoin: prices.bitcoin.usd,
+//             Ethereum: prices.ethereum.usd,
+//             Litecoin: prices.litecoin.usd,
+//             Tether: 1,
+//         };
+
+//         priceCache = {
+//             data: formattedPrices,
+//             lastUpdated: now,
+//         };
+
+//         return res.json(formattedPrices);
+//     } catch (e) {
+//         console.error("Get prices error:", e);
+//         // Serve stale cache if available
+//         if (priceCache.data) {
+//             return res.json(priceCache.data);
+//         }
+//         return res.status(500).json({ error: "Internal server error" });
+//     }
+// });
+
 // GET /coin/prices
 router.get("/prices", async (req, res) => {
     try {
@@ -63,23 +107,23 @@ router.get("/prices", async (req, res) => {
             return res.json(priceCache.data);
         }
 
-        const url = `https://api.coingecko.com/api/v3/simple/price?ids=bitcoin%2Cethereum%2Clitecoin&vs_currencies=usd`;
+        const url = `https://pro-api.coinmarketcap.com/v2/cryptocurrency/quotes/latest?symbol=BTC,ETH,LTC`;
         const response = await axios.get(url, {
             headers: {
                 accept: "application/json",
-                "x-cg-demo-api-key": process.env.COINGECKO_API_KEY,
+                "X-CMC_PRO_API_KEY": process.env.COINMARKETCAP_API_KEY,
             },
         });
-        const prices = response.data;
+        const prices = response.data?.data;
 
-        if (!prices?.bitcoin) {
-            return res.status(500).json({ error: "Failed to fetch prices" });
+        if (!prices?.BTC || !prices?.ETH || !prices?.LTC) {
+            return res.status(500).json({ error: "Failed to fetch prices from CoinMarketCap" });
         }
 
         const formattedPrices = {
-            Bitcoin: prices.bitcoin.usd,
-            Ethereum: prices.ethereum.usd,
-            Litecoin: prices.litecoin.usd,
+            Bitcoin: (prices.BTC[0].quote.USD.price)?.toFixed(2),
+            Ethereum: (prices.ETH[0].quote.USD.price)?.toFixed(2),
+            Litecoin: (prices.LTC[0].quote.USD.price)?.toFixed(2),
             Tether: 1,
         };
 

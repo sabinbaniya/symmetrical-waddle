@@ -505,7 +505,7 @@ export default class Unboxing extends Game {
 
             socket.emit("unboxing:demo-spin", {
                 status: true,
-                data: { pools: results, earning: totalEarning },
+                data: { pools: results, earning: totalEarning, fastSpin: !!data.fastSpin },
             });
         });
 
@@ -785,7 +785,7 @@ export default class Unboxing extends Game {
                         
                         socket.emit("unboxing:spin", {
                             status: true,
-                            data: { pools: result.results, earning: result.totalEarning },
+                            data: { pools: result.results, earning: result.totalEarning, fastSpin: !!data.fastSpin },
                         });
 
                         // Add delayed job for announcement
@@ -808,7 +808,7 @@ export default class Unboxing extends Game {
                                     })),
                                 },
                             },
-                            SPIN_DURATION,
+                            data.fastSpin ? 400 : SPIN_DURATION,
                         );
 
                         // Reveal proof after ~4 seconds
@@ -831,7 +831,7 @@ export default class Unboxing extends Game {
                                     );
                                 }
                             } catch {}
-                        }, 4000);
+                        }, data.fastSpin ? 400 : 4000);
 
                         return result;
                     } catch (err) {
@@ -876,7 +876,7 @@ export default class Unboxing extends Game {
                 });
                 socket.emit("unboxing:spin", {
                     status: true,
-                    data: { pools: result.results, earning: result.totalEarning },
+                    data: { pools: result.results, earning: result.totalEarning, fastSpin: !!data.fastSpin },
                 });
 
                 // Replace setTimeout with addDelayedJob

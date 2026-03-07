@@ -38,6 +38,7 @@ export default async function GetCase(caseID, force = false) {
             const result = {
                 id: case_.id,
                 name: case_.name,
+                image: case_.image,
                 category: case_.category,
                 price: case_.price,
                 creator: case_.creator,

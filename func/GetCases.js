@@ -32,6 +32,7 @@ function formatCasesData(cases, caseType, category = null) {
                 return {
                     id: c.id,
                     name: c.name,
+                    image: c.image,
                     category: c.category,
                     price: c.price,
                     creator: c.creator,

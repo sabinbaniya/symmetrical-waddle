@@ -85,6 +85,7 @@ router.get("/pagination", async (req, res) => {
         const filteredCases = cases.map(c => ({
             id: c.id,
             name: c.name,
+            image: c.image,
             category: c.category,
             price: c.price,
             creator: c.creator,
@@ -134,6 +135,7 @@ router.get("/free", async (req, res) => {
         return res.json({
             id: freeCase.id,
             name: freeCase.name,
+            image: freeCase.image,
             category: freeCase.category,
             price: freeCase.price,
             items: freeCase.items.map(i => ({
